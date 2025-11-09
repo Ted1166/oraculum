@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 /**
  * @title ProjectRegistry
@@ -11,9 +10,9 @@ import "@openzeppelin/contracts/utils/Counters.sol";
  * @dev Handles project lifecycle from submission to completion
  */
 contract ProjectRegistry is Ownable, ReentrancyGuard {
-    using Counters for Counters.Counter;
     
-    Counters.Counter private _projectIds;
+    uint256 private _projectIdCounter;
+    uint256 private _milestoneIdCounter;
     
     // Listing fee for submitting a project (0.1 BNB)
     uint256 public constant LISTING_FEE = 0.1 ether;
@@ -58,9 +57,6 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(uint256 => bool)) public projectMilestones; // projectId => milestoneId => exists
     mapping(address => uint256[]) public ownerProjects;
     
-    // Counters
-    Counters.Counter private _milestoneIds;
-    
     // Events
     event ProjectSubmitted(
         uint256 indexed projectId,
@@ -98,13 +94,9 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
     // CONSTRUCTOR
     // ========================================
     
-    /**
-     * @notice Initialize the ProjectRegistry contract
-     * @dev Passes msg.sender as the initial owner to Ownable
-     */
     constructor() Ownable(msg.sender) {
-        // Ownable is initialized with msg.sender as owner
-        // ReentrancyGuard doesn't need initialization parameters
+        _projectIdCounter = 0;
+        _milestoneIdCounter = 0;
     }
     
     // ========================================
@@ -140,9 +132,8 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
         );
         require(_milestoneDescriptions.length <= 10, "Maximum 10 milestones");
         
-        // Increment project ID
-        _projectIds.increment();
-        uint256 projectId = _projectIds.current();
+        // Increment and get project ID
+        uint256 projectId = ++_projectIdCounter;
         
         // Create project
         projects[projectId] = Project({
@@ -167,8 +158,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
         for (uint256 i = 0; i < _milestoneDescriptions.length; i++) {
             require(_milestoneDates[i] > block.timestamp, "Milestone date must be in future");
             
-            _milestoneIds.increment();
-            uint256 milestoneId = _milestoneIds.current();
+            uint256 milestoneId = ++_milestoneIdCounter;
             
             milestones[milestoneId] = Milestone({
                 id: milestoneId,
@@ -201,7 +191,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
         uint256 _milestoneId,
         bool _outcomeAchieved
     ) external {
-        require(_projectId > 0 && _projectId <= _projectIds.current(), "Invalid project ID");
+        require(_projectId > 0 && _projectId <= _projectIdCounter, "Invalid project ID");
         require(projectMilestones[_projectId][_milestoneId], "Milestone not in project");
         require(
             msg.sender == projects[_projectId].owner || msg.sender == owner(),
@@ -229,7 +219,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
      * @param _newStatus New status
      */
     function updateProjectStatus(uint256 _projectId, ProjectStatus _newStatus) external {
-        require(_projectId > 0 && _projectId <= _projectIds.current(), "Invalid project ID");
+        require(_projectId > 0 && _projectId <= _projectIdCounter, "Invalid project ID");
         require(
             msg.sender == projects[_projectId].owner || msg.sender == owner(),
             "Not authorized"
@@ -247,7 +237,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
      * @param _amount Amount raised
      */
     function recordFundsRaised(uint256 _projectId, uint256 _amount) external onlyOwner {
-        require(_projectId > 0 && _projectId <= _projectIds.current(), "Invalid project ID");
+        require(_projectId > 0 && _projectId <= _projectIdCounter, "Invalid project ID");
         
         projects[_projectId].totalFundsRaised += _amount;
         
@@ -259,7 +249,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
      * @param _projectId Project ID
      */
     function incrementPredictions(uint256 _projectId) external onlyOwner {
-        require(_projectId > 0 && _projectId <= _projectIds.current(), "Invalid project ID");
+        require(_projectId > 0 && _projectId <= _projectIdCounter, "Invalid project ID");
         projects[_projectId].totalPredictions += 1;
     }
     
@@ -272,7 +262,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
      * @param _projectId Project ID
      */
     function getProject(uint256 _projectId) external view returns (Project memory) {
-        require(_projectId > 0 && _projectId <= _projectIds.current(), "Invalid project ID");
+        require(_projectId > 0 && _projectId <= _projectIdCounter, "Invalid project ID");
         return projects[_projectId];
     }
     
@@ -281,7 +271,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
      * @param _milestoneId Milestone ID
      */
     function getMilestone(uint256 _milestoneId) external view returns (Milestone memory) {
-        require(_milestoneId > 0 && _milestoneId <= _milestoneIds.current(), "Invalid milestone ID");
+        require(_milestoneId > 0 && _milestoneId <= _milestoneIdCounter, "Invalid milestone ID");
         return milestones[_milestoneId];
     }
     
@@ -290,7 +280,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
      * @param _projectId Project ID
      */
     function getProjectMilestones(uint256 _projectId) external view returns (Milestone[] memory) {
-        require(_projectId > 0 && _projectId <= _projectIds.current(), "Invalid project ID");
+        require(_projectId > 0 && _projectId <= _projectIdCounter, "Invalid project ID");
         
         uint256[] memory milestoneIdsList = projects[_projectId].milestoneIds;
         Milestone[] memory result = new Milestone[](milestoneIdsList.length);
@@ -314,7 +304,14 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
      * @notice Get total number of projects
      */
     function getTotalProjects() external view returns (uint256) {
-        return _projectIds.current();
+        return _projectIdCounter;
+    }
+    
+    /**
+     * @notice Get total number of milestones
+     */
+    function getTotalMilestones() external view returns (uint256) {
+        return _milestoneIdCounter;
     }
     
     // ========================================
