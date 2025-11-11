@@ -147,10 +147,6 @@ contract FundingPool is Ownable, ReentrancyGuard, Pausable {
         uint256 amount
     );
     
-    // ========================================
-    // CONSTRUCTOR
-    // ========================================
-    
     constructor(
         address _projectRegistry,
         address _predictionMarket
