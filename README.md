@@ -9,8 +9,6 @@ cat > README.md << 'EOF'
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 
-![Predict & Fund Banner](https://via.placeholder.com/1200x400/0A0A0F/00D9FF?text=PREDICT+%26+FUND)
-
 ---
 
 ## 🎯 **What is PREDICT & FUND?**
