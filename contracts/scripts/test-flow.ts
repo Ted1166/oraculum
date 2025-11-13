@@ -1,4 +1,4 @@
-import { network } from "hardhat";
+import hre from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { parseEther, formatEther } from "viem";
@@ -8,10 +8,9 @@ async function main() {
   console.log("   PREDICT & FUND - Complete Workflow Test");
   console.log("═══════════════════════════════════════════════════════\n");
 
-  const networkName = process.env.HARDHAT_NETWORK || "hardhatMainnet";
-  const { viem } = await network.connect();
-  const publicClient = await viem.getPublicClient();
-  const walletClients = await viem.getWalletClients();
+  const networkName = (hre.network as any).name;
+  const publicClient = await (hre as any).viem.getPublicClient();
+  const walletClients = await (hre as any).viem.getWalletClients();
 
   const [owner, user1, user2, projectOwner] = walletClients;
 
@@ -40,22 +39,22 @@ async function main() {
   console.log("  ReputationNFT:    ", deployment.reputationNFT);
   console.log("─────────────────────────────────────────────────────────\n");
 
-  const projectRegistry = await viem.getContractAt(
+  const projectRegistry = await (hre as any).viem.getContractAt(
     "ProjectRegistry",
     deployment.projectRegistry
   );
 
-  const predictionMarket = await viem.getContractAt(
+  const predictionMarket = await (hre as any).viem.getContractAt(
     "PredictionMarket",
     deployment.predictionMarket
   );
 
-  const fundingPool = await viem.getContractAt(
+  const fundingPool = await (hre as any).viem.getContractAt(
     "FundingPool",
     deployment.fundingPool
   );
 
-  const reputationNFT = await viem.getContractAt(
+  const reputationNFT = await (hre as any).viem.getContractAt(
     "ReputationNFT",
     deployment.reputationNFT
   );

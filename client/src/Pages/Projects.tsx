@@ -2,91 +2,21 @@ import { Header } from "@/components/Header";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Filter } from "lucide-react";
-
-// Mock data - replace with actual data from smart contracts
-const mockProjects = [
-  {
-    id: "1",
-    name: "DeFi Yield Optimizer",
-    description: "Auto-compound yields across multiple protocols with optimal gas efficiency and risk management.",
-    category: "DeFi",
-    fundingGoal: "100 BNB",
-    fundingRaised: "67 BNB",
-    fundingPercentage: 67,
-    nextMilestone: "Launch Beta on Testnet",
-    nextMilestoneDate: "Dec 15, 2025",
-    totalPredictions: "234",
-    confidence: 73,
-  },
-  {
-    id: "2",
-    name: "NFT Marketplace v2",
-    description: "Next-gen NFT platform with dynamic royalties, fractional ownership, and cross-chain support.",
-    category: "NFT",
-    fundingGoal: "150 BNB",
-    fundingRaised: "42 BNB",
-    fundingPercentage: 28,
-    nextMilestone: "Complete Smart Contract Audit",
-    nextMilestoneDate: "Dec 10, 2025",
-    totalPredictions: "189",
-    confidence: 58,
-  },
-  {
-    id: "3",
-    name: "Gaming DAO Platform",
-    description: "Community-owned gaming ecosystem with play-to-earn mechanics and governance tokens.",
-    category: "Gaming",
-    fundingGoal: "200 BNB",
-    fundingRaised: "125 BNB",
-    fundingPercentage: 62,
-    nextMilestone: "Alpha Game Release",
-    nextMilestoneDate: "Dec 20, 2025",
-    totalPredictions: "567",
-    confidence: 82,
-  },
-  {
-    id: "4",
-    name: "AI Trading Bot",
-    description: "Machine learning powered trading bot with risk management and portfolio optimization.",
-    category: "AI",
-    fundingGoal: "80 BNB",
-    fundingRaised: "25 BNB",
-    fundingPercentage: 31,
-    nextMilestone: "Complete Backtesting",
-    nextMilestoneDate: "Dec 8, 2025",
-    totalPredictions: "156",
-    confidence: 45,
-  },
-  {
-    id: "5",
-    name: "Social DeFi Network",
-    description: "Decentralized social platform where engagement earns rewards and governance power.",
-    category: "Social",
-    fundingGoal: "120 BNB",
-    fundingRaised: "88 BNB",
-    fundingPercentage: 73,
-    nextMilestone: "Launch MVP",
-    nextMilestoneDate: "Dec 18, 2025",
-    totalPredictions: "412",
-    confidence: 68,
-  },
-  {
-    id: "6",
-    name: "Cross-Chain Bridge",
-    description: "Secure and fast bridge for transferring assets between BNB Chain and other networks.",
-    category: "Infrastructure",
-    fundingGoal: "250 BNB",
-    fundingRaised: "180 BNB",
-    fundingPercentage: 72,
-    nextMilestone: "Security Audit Complete",
-    nextMilestoneDate: "Dec 12, 2025",
-    totalPredictions: "678",
-    confidence: 89,
-  },
-];
+import { Search, Filter, Loader2, RefreshCw, Plus } from "lucide-react";
+import { useAllProjects } from "@/hooks/useProjects";
+import { formatEther } from "viem";
+import { Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 const Projects = () => {
+  const queryClient = useQueryClient();
+  const { data: projects, isLoading, isError, refetch } = useAllProjects();
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries(); // Clear all cached queries
+    refetch(); // Refetch projects
+  };
+
   return (
     <div className="min-h-screen">
       <Header />
@@ -94,13 +24,32 @@ const Projects = () => {
       <main className="pt-24 pb-16">
         <div className="container mx-auto px-4">
           {/* Header */}
-          <div className="mb-12">
-            <h1 className="text-4xl md:text-5xl font-bold mb-4">
-              Explore Projects
-            </h1>
-            <p className="text-xl text-muted-foreground">
-              Browse projects, make predictions, and fund the future
-            </p>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-12">
+            <div>
+              <h1 className="text-4xl md:text-5xl font-bold mb-4">
+                Explore Projects
+              </h1>
+              <p className="text-xl text-muted-foreground">
+                Browse projects, make predictions, and fund the future
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="lg"
+                onClick={handleRefresh}
+                disabled={isLoading}
+              >
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Link to="/create">
+                <Button variant="hero" size="lg">
+                  <Plus className="w-5 h-5" />
+                  Create Project
+                </Button>
+              </Link>
+            </div>
           </div>
 
           {/* Filters & Search */}
@@ -118,12 +67,65 @@ const Projects = () => {
             </Button>
           </div>
 
+          {/* Loading State */}
+          {isLoading && (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+              <p className="text-muted-foreground">Loading projects...</p>
+            </div>
+          )}
+
+          {/* Error State */}
+          {isError && (
+            <div className="text-center py-12">
+              <p className="text-destructive mb-4">Error loading projects. Please check your wallet connection.</p>
+              <p className="text-sm text-muted-foreground mb-4">Make sure you're connected to BSC Testnet.</p>
+              <Button onClick={handleRefresh} variant="outline">
+                Try Again
+              </Button>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!isLoading && !isError && (!projects || projects.length === 0) && (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground mb-4">No projects yet. Be the first to create one!</p>
+              <Link to="/create">
+                <Button variant="hero">
+                  Create Project
+                </Button>
+              </Link>
+            </div>
+          )}
+
           {/* Projects Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {mockProjects.map((project) => (
-              <ProjectCard key={project.id} {...project} />
-            ))}
-          </div>
+          {!isLoading && !isError && projects && projects.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {projects.map((project, index) => {
+                if (project.status === 'success' && project.result) {
+                  const data = project.result as any;
+                  
+                  // Skip if project name is empty
+                  if (!data[0]) return null;
+                  
+                  return (
+                    <ProjectCard
+                      key={index}
+                      id={String(index)}
+                      name={data[0]}
+                      description={data[2] || 'No description'}
+                      category={data[3] || 'General'}
+                      fundingGoal={data[6] || 0n}
+                      fundingRaised={data[7] || 0n}
+                      totalPredictions={0n}
+                      confidence={50}
+                    />
+                  );
+                }
+                return null;
+              })}
+            </div>
+          )}
         </div>
       </main>
     </div>

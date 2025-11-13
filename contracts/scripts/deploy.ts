@@ -1,3 +1,4 @@
+import hre from "hardhat";
 import { network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
@@ -15,12 +16,13 @@ interface DeploymentAddresses {
 }
 
 async function main() {
+  const networkName = (hre.network as any).name;
+
   console.log("\n🚀 ═══════════════════════════════════════════════════════");
   console.log("   PREDICT & FUND - Smart Contract Deployment");
   console.log("═══════════════════════════════════════════════════════\n");
 
-  // Get network details
-  const networkName = process.env.HARDHAT_NETWORK || "hardhatMainnet";
+  // Get network connection using Hardhat 3 API
   const { viem } = await network.connect();
   const publicClient = await viem.getPublicClient();
   const [walletClient] = await viem.getWalletClients();
@@ -35,14 +37,14 @@ async function main() {
   console.log("  Network:      ", networkName);
   console.log("  Chain ID:     ", chainId);
   console.log("  Deployer:     ", deployer);
-  console.log("  Balance:      ", (Number(balance) / 1e18).toFixed(4), "BNB");
+  console.log("  Balance:      ", (Number(balance) / 1e18).toFixed(4), "ETH/BNB");
   console.log("  Block Number: ", blockNumber);
   console.log("─────────────────────────────────────────────────────────\n");
 
   // Check balance
-  const minBalance = networkName === "hardhatMainnet" ? 0n : 100000000000000000n; // 0.1 BNB
+  const minBalance = networkName === "hardhat" ? 0n : 100000000000000000n; // 0.1 ETH/BNB
   if (balance < minBalance) {
-    throw new Error("❌ Insufficient balance! Need at least 0.1 BNB for deployment");
+    throw new Error("❌ Insufficient balance! Need at least 0.1 ETH/BNB for deployment");
   }
 
   const addresses: Partial<DeploymentAddresses> = {
@@ -146,7 +148,14 @@ async function main() {
   console.log("─────────────────────────────────────────────────────────");
 
   // Network-specific links
-  if (networkName === "bscTestnet") {
+  if (networkName === "sepolia") {
+    console.log("\n🔗 View on Etherscan:");
+    console.log("─────────────────────────────────────────────────────────");
+    console.log("  ProjectRegistry:   https://sepolia.etherscan.io/address/" + projectRegistry.address);
+    console.log("  PredictionMarket:  https://sepolia.etherscan.io/address/" + predictionMarket.address);
+    console.log("  FundingPool:       https://sepolia.etherscan.io/address/" + fundingPool.address);
+    console.log("  ReputationNFT:     https://sepolia.etherscan.io/address/" + reputationNFT.address);
+  } else if (networkName === "bscTestnet") {
     console.log("\n🔗 View on BscScan Testnet:");
     console.log("─────────────────────────────────────────────────────────");
     console.log("  ProjectRegistry:   https://testnet.bscscan.com/address/" + projectRegistry.address);
@@ -164,9 +173,8 @@ async function main() {
 
   console.log("\n📝 Next Steps:");
   console.log("─────────────────────────────────────────────────────────");
-  console.log("  1. Test deployment:  npm run test-flow:local or test-flow:testnet");
-  console.log("  2. Verify contracts on BscScan (see commands below)");
-  console.log("  3. Update frontend with contract addresses");
+  console.log("  1. Verify contracts on block explorer");
+  console.log("  2. Update frontend with contract addresses");
   console.log("─────────────────────────────────────────────────────────");
 
   console.log("\n🔍 Verification Commands:");

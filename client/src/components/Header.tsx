@@ -1,6 +1,6 @@
-import { Button } from "./ui/button";
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from "react-router-dom";
-import { Wallet, TrendingUp } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 
 export const Header = () => {
   return (
@@ -18,6 +18,10 @@ export const Header = () => {
             </div>
           </Link>
 
+          <Link to="/leaderboard" className="text-foreground/80 hover:text-primary transition-colors">
+            Leaderboard
+          </Link>
+
           <nav className="hidden md:flex items-center gap-8">
             <Link to="/projects" className="text-muted-foreground hover:text-foreground transition-colors">
               Projects
@@ -25,15 +29,16 @@ export const Header = () => {
             <Link to="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
               Dashboard
             </Link>
-            <Link to="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">
-              How It Works
+            <Link to="/profile" className="text-muted-foreground hover:text-foreground transition-colors">
+              Profile
             </Link>
+            <a href="/#how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">
+              How It Works
+            </a>
           </nav>
 
-          <Button variant="hero" size="lg">
-            <Wallet className="w-4 h-4" />
-            Connect Wallet
-          </Button>
+          {/* RainbowKit Connect Button - Auto-styled for dark theme */}
+          <ConnectButton />
         </div>
       </div>
     </header>

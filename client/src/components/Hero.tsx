@@ -1,19 +1,24 @@
 import { Button } from "@/components/ui/button";
 import { ArrowRight, TrendingUp, Zap, Shield } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useProjectStats } from "@/hooks/useProjects";
+import { formatEther } from "viem";
 import heroImage from "@/assets/hero-bg.jpg";
 
 export const Hero = () => {
+  const { data: stats, isLoading } = useProjectStats();
+
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Background Image with Overlay */}
+      {/* Background with Grid Pattern */}
       <div className="absolute inset-0 z-0">
-        <img 
-          src={heroImage} 
-          alt="Predict & Fund Hero" 
-          className="w-full h-full object-cover opacity-40"
+        <img
+        src={heroImage}
+        alt="Predict & Fund Hero"
+        className="w-full h-full object-cover opacity-40"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-background via-background/50 to-background" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background via-primary/5 to-background" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,217,255,0.1),transparent_50%)]" />
       </div>
 
       {/* Content */}
@@ -42,28 +47,54 @@ export const Hero = () => {
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
-            <Button variant="outline" size="lg" className="text-lg px-8 py-6">
-              Learn More
-            </Button>
+            <a href="/#how-it-works">
+              <Button variant="outline" size="lg" className="text-lg px-8 py-6">
+                Learn More
+              </Button>
+            </a>
           </div>
 
-          {/* Stats */}
+          {/* Real-Time Stats from Blockchain */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
               <TrendingUp className="w-8 h-8 text-primary mx-auto mb-3" />
-              <div className="text-3xl font-bold text-foreground mb-2">$2.5M</div>
+              <div className="text-3xl font-bold text-foreground mb-2">
+                {isLoading ? (
+                  <div className="h-9 w-24 mx-auto bg-muted animate-pulse rounded" />
+                ) : stats ? (
+                  `${formatEther(stats.totalStaked)} BNB`
+                ) : (
+                  '0 BNB'
+                )}
+              </div>
               <div className="text-muted-foreground">Total Predicted</div>
             </div>
 
             <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
               <Shield className="w-8 h-8 text-accent mx-auto mb-3" />
-              <div className="text-3xl font-bold text-foreground mb-2">47</div>
+              <div className="text-3xl font-bold text-foreground mb-2">
+                {isLoading ? (
+                  <div className="h-9 w-16 mx-auto bg-muted animate-pulse rounded" />
+                ) : stats ? (
+                  stats.projectCount.toString()
+                ) : (
+                  '0'
+                )}
+              </div>
               <div className="text-muted-foreground">Active Projects</div>
             </div>
 
             <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
               <Zap className="w-8 h-8 text-success mx-auto mb-3" />
-              <div className="text-3xl font-bold text-foreground mb-2">1,284</div>
+              <div className="text-3xl font-bold text-foreground mb-2">
+                {isLoading ? (
+                  <div className="h-9 w-20 mx-auto bg-muted animate-pulse rounded" />
+                ) : stats ? (
+                  stats.totalPredictors.toString()
+                ) : (
+                  '0'
+                )}
+              </div>
               <div className="text-muted-foreground">Predictors</div>
             </div>
           </div>

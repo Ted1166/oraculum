@@ -1,0 +1,10 @@
+{
+  "chainId": "97",
+  "deployer": "0x9e2d2c2522a904ef07dc61f88d189833476d4a58",
+  "deploymentTime": "2025-11-12T22:59:16.077Z",
+  "blockNumber": "72404331",
+  "projectRegistry": "0x19230de3207b681dc4498083f4be1f8baccf140e",
+  "predictionMarket": "0x61ab17d1f917e06b92c2d98cd7f9ee584ac64c86",
+  "fundingPool": "0x8c6fd67f7990ce198660354ec378a560f24fdd72",
+  "reputationNFT": "0x4f23ce97c737d792c575cf0b9421497ea0e6850a"
+}

@@ -1,0 +1,10 @@
+{
+  "chainId": "11155111",
+  "deployer": "0x037c11c3a1c7a79a896bd0f15bdbbf174f4b14ae",
+  "deploymentTime": "2025-11-12T15:19:06.841Z",
+  "blockNumber": "9614953",
+  "projectRegistry": "0xedc43164b146a334938989c62ae58f1a7efc90f6",
+  "predictionMarket": "0x4f762a76696d31f0ba74de8feef637a5ffa61acb",
+  "fundingPool": "0xdbad1189e1c53d6be9ea0dff6e08933fd80a6123",
+  "reputationNFT": "0x3034a5ffb531750ce8b26566438c420e97960949"
+}

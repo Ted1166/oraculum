@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import { expect } from "chai";
-import { network } from "hardhat";
+import hre from "hardhat";
 import { parseEther } from "viem";
 
 describe("FundingPool", function () {
@@ -14,8 +14,7 @@ describe("FundingPool", function () {
   let projectOwner: any;
 
   beforeEach(async function () {
-    const { viem: v } = await network.connect();
-    viem = v;
+    const viem = (hre as any).viem;
     const walletClients = await viem.getWalletClients();
     [owner, user1, user2, projectOwner] = walletClients;
 

@@ -1,52 +1,52 @@
 import "dotenv/config";
-import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { defineConfig } from "hardhat/config";
+import hardhatViem from "@nomicfoundation/hardhat-viem";
 
 export default defineConfig({
-  plugins: [hardhatToolboxViemPlugin],
+  plugins: [hardhatViem],
   solidity: {
-    profiles: {
-      default: {
-        version: "0.8.20",
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
-          viaIR: true,
-        },
+    version: "0.8.20",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
       },
-      production: {
-        version: "0.8.20",
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
-          viaIR: true,
-        },
-      },
+      viaIR: true,
     },
   },
   networks: {
-    // Local Hardhat Network
-    hardhatMainnet: {
+    hardhat: {
       type: "edr-simulated",
       chainType: "l1",
+      chainId: 31337,
     },
-    // BNB Chain Testnet
+    sepolia: {
+      type: "http",
+      chainType: "l1",
+      url: process.env.SEPOLIA_RPC || "https://rpc.sepolia.org",
+      chainId: 11155111,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
     bscTestnet: {
       type: "http",
       chainType: "l1",
       url: process.env.BSC_TESTNET_RPC || "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+      chainId: 97,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     },
-    // BNB Chain Mainnet
     bscMainnet: {
       type: "http",
       chainType: "l1",
       url: process.env.BSC_MAINNET_RPC || "https://bsc-dataseed1.bnbchain.org",
+      chainId: 56,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     },
   },
+  // etherscan: {
+  //   apiKey: {
+  //     sepolia: process.env.ETHERSCAN_API_KEY || "",
+  //     bscTestnet: process.env.BSCSCAN_API_KEY || "",
+  //     bsc: process.env.BSCSCAN_API_KEY || "",
+  //   },
+  // },
 });
