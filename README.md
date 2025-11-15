@@ -1,4 +1,3 @@
-cat > README.md << 'EOF'
 # 🚀 PREDICT & FUND (Oraculum)
 
 > **Where Prediction Markets Meet Crowdfunding**  
