@@ -15,7 +15,7 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
     uint256 private _milestoneIdCounter;
     
     // Listing fee for submitting a project (0.1 BNB)
-    uint256 public constant LISTING_FEE = 0.1 ether;
+    uint256 public constant LISTING_FEE = 0.001 ether;
     
     // Project status enum
     enum ProjectStatus {
