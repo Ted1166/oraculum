@@ -313,6 +313,20 @@ contract ProjectRegistry is Ownable, ReentrancyGuard {
     function getTotalMilestones() external view returns (uint256) {
         return _milestoneIdCounter;
     }
+
+    function getAllProjects() external view returns (Project[] memory) {
+        if (_projectIdCounter == 0) {
+            return new Project[](0);
+        }
+
+        Project[] memory allProjects = new Project[](_projectIdCounter);
+
+        for (uint256 i = 1; i <= _projectIdCounter; i++) {
+            allProjects[i - 1] = projects[i];
+        }
+
+        return allProjects;
+    }
     
     // ========================================
     // ADMIN FUNCTIONS

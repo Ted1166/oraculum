@@ -3,10 +3,10 @@ import { bscTestnet } from 'wagmi/chains'
 // Contract addresses from BSC Testnet deployment
 export const CONTRACTS = {
   bscTestnet: {
-    ProjectRegistry: '0x19230de3207b681dc4498083f4be1f8baccf140e',
-    PredictionMarket: '0x61ab17d1f917e06b92c2d98cd7f9ee584ac64c86',
-    FundingPool: '0x8c6fd67f7990ce198660354ec378a560f24fdd72',
-    ReputationNFT: '0x4f23ce97c737d792c575cf0b9421497ea0e6850a',
+    ProjectRegistry: '0x34e4665cfb85e33ef6553663df7b484f3543f0cf',
+    PredictionMarket: '0x5350df00c2ae9193fce4a508b7e12964a659bb31',
+    FundingPool: '0x002d30e416ae9cde9c5f541a690685d89a361ba6',
+    ReputationNFT: '0x4ce58c4e57af2a5f61b68465e56f97e6bd041363',
   },
   sepolia: {
     ProjectRegistry: '0x1f35c6a03b99a58afcb0acbaaaf459d202eb3f2f',
