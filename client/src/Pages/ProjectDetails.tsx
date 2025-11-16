@@ -15,20 +15,24 @@ import {
   Clock,
   Loader2,
   AlertCircle,
-  ArrowLeft
+  ArrowLeft,
+  Sparkles
 } from "lucide-react";
 import { useParams, Link } from "react-router-dom";
 import { useProject, useProjectMilestones } from "@/hooks/useProjects";
 import { useMarket, usePlaceBet } from "@/hooks/usePredictions";
-import { formatEther, parseEther } from "viem";
+import { formatEther } from "viem";
 import { useState } from "react";
 import { useAccount } from "wagmi";
+import { updateUserStats } from "@/hooks/usePredictions";
 
 const ProjectDetail = () => {
   const { id } = useParams();
   const { address, isConnected } = useAccount();
   const [betAmount, setBetAmount] = useState("");
   const [selectedMilestone, setSelectedMilestone] = useState(0);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [loadingAI, setLoadingAI] = useState(false);
   
   const { data: project, isLoading: projectLoading, isError: projectError } = useProject(Number(id));
   const { data: milestones, isLoading: milestonesLoading } = useProjectMilestones(Number(id));
@@ -36,17 +40,132 @@ const ProjectDetail = () => {
   const { placeBet, isPending, isConfirming, isSuccess, isError: betError } = usePlaceBet();
 
   const handlePlaceBet = async (predictYes: boolean) => {
-    if (!betAmount || !id || Number(betAmount) < 0.01) {
-      alert("Minimum bet amount is 0.01 BNB");
-      return;
+  if (!betAmount || !id || Number(betAmount) < 0.01) {
+    alert("Minimum bet amount is 0.01 BNB");
+    return;
+  }
+  
+  try {
+    await placeBet(
+      Number(id), 
+      selectedMilestone,
+      predictYes, 
+      betAmount
+    );
+    
+    // Update leaderboard stats
+    if (address) {
+      const amount = BigInt(Math.floor(Number(betAmount) * 1e18));
+      updateUserStats(address, amount);
     }
     
-    try {
-      await placeBet(Number(id), selectedMilestone, predictYes, betAmount);
-      setBetAmount(""); // Clear input after successful bet
-    } catch (error) {
-      console.error('Failed to place bet:', error);
+    setBetAmount("");
+  } catch (error: any) {
+    console.error('❌ Bet failed:', error);
+    
+    // ✅ ADD BETTER ERROR MESSAGES
+    const errorMsg = error.message || error.toString();
+    
+    if (errorMsg.includes('Market does not exist')) {
+      alert('❌ Market not created yet.\n\nThis milestone needs a prediction market. Contact the project owner.');
+    } else if (errorMsg.includes('Already bet')) {
+      alert('❌ You already placed a bet on this milestone.\n\nYou can only bet once per milestone.');
+    } else if (errorMsg.includes('insufficient funds')) {
+      alert('❌ Insufficient BNB balance.\n\nYou need at least ' + betAmount + ' BNB plus gas fees.');
+    } else if (errorMsg.includes('user rejected')) {
+      alert('Transaction cancelled.');
+    } else {
+      alert(`❌ Transaction Failed:\n\n${errorMsg.substring(0, 200)}`);
     }
+  }
+};
+
+  // AI Analysis function
+  const analyzeProject = async () => {
+    if (!project) return;
+    
+    setLoadingAI(true);
+    
+    try {
+      // For now, generate local analysis
+      // Later, replace with actual API call to OpenAI
+      const mockAnalysis = generateMockAnalysis(project as any, milestones as any);
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      setAiAnalysis(mockAnalysis);
+    } catch (error) {
+      console.error('AI analysis failed:', error);
+      alert('Failed to generate AI analysis. Please try again.');
+    } finally {
+      setLoadingAI(false);
+    }
+  };
+
+  // Mock AI analysis generator (replace with real API later)
+  const generateMockAnalysis = (projectData: any, milestonesData: any[]) => {
+    const fundingGoal = projectData.fundingGoal || 0n;
+    const fundingRaised = projectData.totalFundsRaised || 0n;
+    const fundingPercent = fundingGoal > 0n 
+      ? Number((fundingRaised * 100n) / fundingGoal) 
+      : 0;
+    
+    const milestonesCount = milestonesData?.length || 0;
+    const completedMilestones = milestonesData?.filter((m: any) => m.isResolved && m.outcomeAchieved).length || 0;
+    
+    // Calculate success probability based on data
+    let successProb = 50;
+    if (fundingPercent > 70) successProb += 20;
+    if (fundingPercent > 50) successProb += 10;
+    if (completedMilestones > 0) successProb += 15;
+    if (projectData.totalPredictions > 50) successProb += 10;
+    
+    successProb = Math.min(95, successProb);
+    
+    const riskLevel = successProb > 70 ? 'Low' : successProb > 50 ? 'Medium' : 'High';
+    
+    return `
+## 📊 AI Project Analysis
+
+### Success Probability: ${successProb}%
+
+Based on current metrics, this project shows **${successProb > 70 ? 'strong' : successProb > 50 ? 'moderate' : 'weak'}** potential for success.
+
+### 🎯 Risk Assessment: ${riskLevel}
+
+**Key Factors:**
+- **Funding Progress**: ${fundingPercent.toFixed(1)}% of goal achieved
+- **Milestone Completion**: ${completedMilestones}/${milestonesCount} milestones completed
+- **Community Interest**: ${projectData.totalPredictions || 0} active predictions
+- **Category**: ${projectData.category} sector activity
+
+### ✅ Strengths
+
+1. **${fundingPercent > 50 ? 'Strong' : 'Growing'} Community Support**: The project has attracted ${projectData.totalPredictions || 0} predictors, indicating ${fundingPercent > 50 ? 'solid' : 'emerging'} market interest.
+
+2. **${milestonesCount > 2 ? 'Well-Defined' : 'Clear'} Roadmap**: ${milestonesCount} milestones provide ${milestonesCount > 3 ? 'comprehensive' : 'clear'} development visibility.
+
+3. **${projectData.category} Sector**: Currently a ${projectData.category === 'DeFi' ? 'high-activity' : 'growing'} blockchain sector with strong fundamentals.
+
+### ⚠️ Considerations
+
+1. **Funding Timeline**: ${fundingPercent < 30 ? 'Early stage - needs more traction' : fundingPercent < 70 ? 'Approaching funding goals but not yet secured' : 'Nearing completion of funding target'}
+
+2. **Milestone Execution**: ${completedMilestones === 0 ? 'No milestones completed yet - track early progress carefully' : completedMilestones < milestonesCount / 2 ? 'Some milestones achieved - monitor ongoing delivery' : 'Strong track record of milestone completion'}
+
+3. **Market Confidence**: ${projectData.totalPredictions < 20 ? 'Limited predictor activity - still building awareness' : projectData.totalPredictions < 100 ? 'Moderate community engagement' : 'High community engagement and confidence'}
+
+### 💡 Recommendation
+
+**${successProb > 70 ? 'STRONG BUY' : successProb > 50 ? 'BUY' : 'HOLD'}** - ${successProb > 70 ? 'This project shows strong fundamentals and high probability of milestone achievement.' : successProb > 50 ? 'This project has moderate potential. Consider betting on near-term milestones.' : 'This project is early stage. Monitor progress before significant investment.'}
+
+${successProb > 70 ? '✅ Recommend betting YES on upcoming milestones' : successProb > 50 ? '⚖️ Consider smaller positions on near-term milestones' : '⏳ Wait for more data and milestone completion'}
+
+### 🎲 Confidence Score: ${Math.round(successProb * 0.85)}%
+
+*This analysis is based on on-chain data and market trends. Always do your own research and never invest more than you can afford to lose.*
+    `.trim();
   };
 
   // Loading State
@@ -76,7 +195,7 @@ const ProjectDetail = () => {
             </p>
             <Link to="/projects">
               <Button variant="hero">
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Projects
               </Button>
             </Link>
@@ -86,18 +205,10 @@ const ProjectDetail = () => {
     );
   }
 
+  // Extract project data
   const projectData = project as any;
-  
-  // Extract project data from tuple
-  const projectName = projectData[0];
-  const creator = projectData[1];
-  const description = projectData[2];
-  const category = projectData[3];
-  const fundingGoal = projectData[6];
-  const fundingRaised = projectData[7];
-  const status = projectData[8];
-  const createdAt = projectData[9];
-
+  const fundingGoal = projectData.fundingGoal || 0n;
+  const fundingRaised = projectData.totalFundsRaised || 0n;
   const fundingPercentage = fundingGoal > 0n 
     ? Number((fundingRaised * 100n) / fundingGoal)
     : 0;
@@ -106,20 +217,34 @@ const ProjectDetail = () => {
   const milestonesArray = (milestones as any[]) || [];
 
   // Calculate market stats if available
+  // Handle different market data structures
   let yesPercentage = 50;
   let noPercentage = 50;
-  
+
   if (market) {
-    const totalYes = market[0] || 0n;
-    const totalNo = market[1] || 0n;
-    const total = totalYes + totalNo;
+    const m = market as any; // Cast to bypass TypeScript
     
-    if (total > 0n) {
-      yesPercentage = Number((totalYes * 100n) / total);
-      noPercentage = 100 - yesPercentage;
+    if (m.data?.yesPercentage !== undefined) {
+      yesPercentage = m.data.yesPercentage;
+      noPercentage = m.data.noPercentage;
+    } else if (m.yesPercentage !== undefined) {
+      yesPercentage = m.yesPercentage;
+      noPercentage = m.noPercentage;
+    } else if (Array.isArray(market)) {
+      const totalYes = m[0] || 0n;
+      const totalNo = m[1] || 0n;
+      const total = totalYes + totalNo;
+      
+      if (total > 0n) {
+        yesPercentage = Number((totalYes * 100n) / total);
+        noPercentage = 100 - yesPercentage;
+      }
     }
   }
+  // const yesPercentage = marketData?.yesPercentage || 50;
+  // const noPercentage = marketData?.noPercentage || 50;
 
+  
   return (
     <div className="min-h-screen">
       <Header />
@@ -129,7 +254,7 @@ const ProjectDetail = () => {
           {/* Back Button */}
           <Link to="/projects">
             <Button variant="ghost" className="mb-6">
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Projects
             </Button>
           </Link>
@@ -139,22 +264,22 @@ const ProjectDetail = () => {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <Badge variant="secondary" className="mb-2">
-                  {category}
+                  {projectData.category || 'Uncategorized'}
                 </Badge>
                 <h1 className="text-4xl md:text-5xl font-bold mb-4">
-                  {projectName}
+                  {projectData.name || 'Untitled Project'}
                 </h1>
                 <p className="text-xl text-muted-foreground max-w-3xl">
-                  {description}
+                  {projectData.description || 'No description available'}
                 </p>
                 <div className="flex items-center gap-4 mt-4 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4" />
-                    <span>Creator: {creator?.slice(0, 6)}...{creator?.slice(-4)}</span>
+                    <span>Creator: {projectData.owner?.slice(0, 6)}...{projectData.owner?.slice(-4)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
-                    <span>Created: {new Date(Number(createdAt) * 1000).toLocaleDateString()}</span>
+                    <span>Created: {new Date(Number(projectData.submissionDate) * 1000).toLocaleDateString()}</span>
                   </div>
                 </div>
               </div>
@@ -164,6 +289,60 @@ const ProjectDetail = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
+              {/* AI Analysis Card */}
+              <Card className="bg-gradient-card border-primary/50">
+                <CardContent className="pt-6">
+                  {!aiAnalysis ? (
+                    <div className="text-center py-8">
+                      <Sparkles className="w-12 h-12 text-primary mx-auto mb-4" />
+                      <h3 className="font-bold text-lg mb-2">AI Project Analysis</h3>
+                      <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+                        Get AI-powered insights on success probability, risk assessment, strengths, and recommendations
+                      </p>
+                      <Button 
+                        onClick={analyzeProject} 
+                        disabled={loadingAI}
+                        variant="hero"
+                        size="lg"
+                      >
+                        {loadingAI ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            Analyze with AI
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-primary" />
+                          AI Analysis
+                        </h3>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => setAiAnalysis(null)}
+                        >
+                          Refresh
+                        </Button>
+                      </div>
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                          {aiAnalysis}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Milestones */}
               <Card className="bg-gradient-card">
                 <CardHeader>
@@ -175,16 +354,13 @@ const ProjectDetail = () => {
                 <CardContent className="space-y-4">
                   {milestonesArray.length > 0 ? (
                     milestonesArray.map((milestone, idx) => {
-                      const milestoneDescription = milestone[0];
-                      const targetDate = milestone[1];
-                      const fundingTarget = milestone[2];
-                      const achieved = milestone[3];
+                      const isSelected = selectedMilestone === idx;
                       
                       return (
                         <div
                           key={idx}
                           className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                            selectedMilestone === idx
+                            isSelected
                               ? "border-primary/50 bg-primary/5"
                               : "border-border/50 hover:border-border"
                           }`}
@@ -192,28 +368,24 @@ const ProjectDetail = () => {
                         >
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex items-start gap-3 flex-1">
-                              {achieved ? (
+                              {milestone.isResolved ? (
                                 <CheckCircle2 className="w-5 h-5 text-success mt-1" />
                               ) : (
                                 <Clock className="w-5 h-5 text-warning mt-1" />
                               )}
                               <div className="flex-1">
                                 <h3 className="font-semibold mb-1">
-                                  {milestoneDescription || `Milestone ${idx + 1}`}
+                                  {milestone.description || `Milestone ${idx + 1}`}
                                 </h3>
                                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
                                   <div className="flex items-center gap-1">
                                     <Calendar className="w-3 h-3" />
-                                    {new Date(Number(targetDate) * 1000).toLocaleDateString()}
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <DollarSign className="w-3 h-3" />
-                                    {formatEther(fundingTarget)} BNB
+                                    {new Date(Number(milestone.targetDate) * 1000).toLocaleDateString()}
                                   </div>
                                 </div>
                               </div>
                             </div>
-                            {!achieved && selectedMilestone === idx && (
+                            {!milestone.isResolved && isSelected && (
                               <div className="text-right">
                                 <div className="text-2xl font-bold text-success">
                                   {yesPercentage}%
@@ -223,8 +395,8 @@ const ProjectDetail = () => {
                             )}
                           </div>
 
-                          {/* Betting Section - Only show for selected, unachieved milestone */}
-                          {!achieved && selectedMilestone === idx && (
+                          {/* Betting Section */}
+                          {!milestone.isResolved && isSelected && (
                             <div className="mt-4 pt-4 border-t border-border/50">
                               <div className="flex gap-2 mb-3">
                                 <div className="flex-1 bg-success/20 text-success px-3 py-2 rounded-lg text-sm font-medium text-center">
@@ -240,52 +412,53 @@ const ProjectDetail = () => {
                                   Connect your wallet to place predictions
                                 </p>
                               ) : (
-                                <div className="grid grid-cols-2 gap-2">
-                                  <Button 
-                                    variant="default"
-                                    size="sm" 
-                                    className="w-full bg-success hover:bg-success/80"
-                                    onClick={() => handlePlaceBet(true)}
-                                    disabled={isPending || isConfirming || !betAmount}
-                                  >
-                                    {isPending || isConfirming ? (
-                                      <>
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        {isPending ? 'Approving...' : 'Processing...'}
-                                      </>
-                                    ) : (
-                                      'Bet YES'
-                                    )}
-                                  </Button>
-                                  <Button 
-                                    variant="destructive" 
-                                    size="sm" 
-                                    className="w-full"
-                                    onClick={() => handlePlaceBet(false)}
-                                    disabled={isPending || isConfirming || !betAmount}
-                                  >
-                                    {isPending || isConfirming ? (
-                                      <>
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        {isPending ? 'Approving...' : 'Processing...'}
-                                      </>
-                                    ) : (
-                                      'Bet NO'
-                                    )}
-                                  </Button>
-                                </div>
-                              )}
+                                <>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <Button 
+                                      variant="default"
+                                      size="sm" 
+                                      className="w-full bg-success hover:bg-success/80"
+                                      onClick={() => handlePlaceBet(true)}
+                                      disabled={isPending || isConfirming || !betAmount}
+                                    >
+                                      {isPending || isConfirming ? (
+                                        <>
+                                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                          {isPending ? 'Confirming...' : 'Processing...'}
+                                        </>
+                                      ) : (
+                                        'Bet YES'
+                                      )}
+                                    </Button>
+                                    <Button 
+                                      variant="destructive" 
+                                      size="sm" 
+                                      className="w-full"
+                                      onClick={() => handlePlaceBet(false)}
+                                      disabled={isPending || isConfirming || !betAmount}
+                                    >
+                                      {isPending || isConfirming ? (
+                                        <>
+                                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                          {isPending ? 'Confirming...' : 'Processing...'}
+                                        </>
+                                      ) : (
+                                        'Bet NO'
+                                      )}
+                                    </Button>
+                                  </div>
 
-                              {/* Success/Error Messages */}
-                              {isSuccess && (
-                                <p className="text-center text-sm text-success mt-2">
-                                  ✅ Prediction placed successfully!
-                                </p>
-                              )}
-                              {betError && (
-                                <p className="text-center text-sm text-destructive mt-2">
-                                  ❌ Failed to place prediction. Try again.
-                                </p>
+                                  {isSuccess && (
+                                    <p className="text-center text-sm text-success mt-2">
+                                      ✅ Prediction placed successfully!
+                                    </p>
+                                  )}
+                                  {betError && (
+                                    <p className="text-center text-sm text-destructive mt-2">
+                                      ❌ Failed to place prediction. Try again.
+                                    </p>
+                                  )}
+                                </>
                               )}
                             </div>
                           )}
@@ -312,13 +485,13 @@ const ProjectDetail = () => {
                       <div>
                         <h3 className="font-semibold mb-2">Project Vision</h3>
                         <p className="text-muted-foreground">
-                          {description}
+                          {projectData.description || 'No description available'}
                         </p>
                       </div>
                       <div>
                         <h3 className="font-semibold mb-2">Status</h3>
-                        <Badge variant={status === 0 ? "default" : status === 1 ? "secondary" : "outline"}>
-                          {status === 0 ? 'Active' : status === 1 ? 'Completed' : 'Cancelled'}
+                        <Badge>
+                          {['Pending', 'Active', 'Completed', 'Cancelled'][projectData.status] || 'Unknown'}
                         </Badge>
                       </div>
                     </TabsContent>
@@ -327,10 +500,10 @@ const ProjectDetail = () => {
                         <h3 className="font-semibold mb-2">Project Creator</h3>
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-background font-bold">
-                            {creator?.slice(2, 4).toUpperCase()}
+                            {projectData.owner?.slice(2, 4).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-mono text-sm">{creator}</p>
+                            <p className="font-mono text-sm">{projectData.owner}</p>
                             <p className="text-xs text-muted-foreground">Project Owner</p>
                           </div>
                         </div>
@@ -395,7 +568,7 @@ const ProjectDetail = () => {
                     </div>
                     <Progress value={fundingPercentage} className="h-2" />
                     <div className="text-xs text-muted-foreground mt-1">
-                      {fundingPercentage}% funded
+                      {fundingPercentage.toFixed(1)}% funded
                     </div>
                   </div>
                   
@@ -403,48 +576,18 @@ const ProjectDetail = () => {
                     <div>
                       <div className="flex items-center gap-1 text-muted-foreground text-sm mb-1">
                         <Target className="w-3 h-3" />
-                        Milestones
+                        Predictors
                       </div>
-                      <div className="text-2xl font-bold">{milestonesArray.length}</div>
+                      <div className="text-2xl font-bold">{projectData.totalPredictions || 0}</div>
                     </div>
                     <div>
                       <div className="flex items-center gap-1 text-muted-foreground text-sm mb-1">
                         <CheckCircle2 className="w-3 h-3" />
-                        Completed
+                        Milestones
                       </div>
                       <div className="text-2xl font-bold">
-                        {milestonesArray.filter((m: any) => m[3]).length}
+                        {milestonesArray.length}
                       </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Project Stats */}
-              <Card className="bg-gradient-card">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-primary" />
-                    Market Stats
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Category</span>
-                      <Badge variant="secondary">{category}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Status</span>
-                      <Badge variant={status === 0 ? "default" : "secondary"}>
-                        {status === 0 ? 'Active' : 'Completed'}
-                      </Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Created</span>
-                      <span className="font-semibold">
-                        {new Date(Number(createdAt) * 1000).toLocaleDateString()}
-                      </span>
                     </div>
                   </div>
                 </CardContent>

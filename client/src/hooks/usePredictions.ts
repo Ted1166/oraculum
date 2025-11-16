@@ -4,47 +4,44 @@ import { ACTIVE_CONTRACTS, ACTIVE_CHAIN, PREDICTION_MARKET_ABI } from '@/lib/con
 import { parseEther, formatEther } from 'viem'
 
 // ========================================
-// EXISTING HOOKS (UNCHANGED)
+// MARKET HOOKS
 // ========================================
 
-// Hook to get market data for a specific project milestone
+/**
+ * ✅ UPDATED: Get market by projectId and milestoneIndex
+ */
 export function useMarket(projectId: number, milestoneIndex: number) {
   const result = useReadContract({
     address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
     abi: PREDICTION_MARKET_ABI,
-    functionName: 'getMarket',
+    functionName: 'getMarketByProjectMilestone',  // ✅ NEW function
     args: [BigInt(projectId), BigInt(milestoneIndex)],
     chainId: ACTIVE_CHAIN.id,
     query: {
       enabled: projectId !== undefined && milestoneIndex !== undefined,
-      refetchInterval: 5000, // ✅ Refetch every 5 seconds for real-time updates
+      refetchInterval: 5000,
     },
   })
 
-  // Parse market data
   const data = result.data as any
   if (data) {
-    const totalYes = data[0] || 0n
-    const totalNo = data[1] || 0n
-    const total = totalYes + totalNo
-    
-    let yesPercentage = 50
-    let noPercentage = 50
-    
-    if (total > 0n) {
-      yesPercentage = Number((totalYes * 100n) / total)
-      noPercentage = 100 - yesPercentage
-    }
-
     return {
       ...result,
       data: {
-        totalYes,
-        totalNo,
-        resolved: data[2] || false,
-        outcome: data[3] || false,
-        yesPercentage,
-        noPercentage,
+        marketId: data.marketId,
+        milestoneId: data.milestoneId,
+        projectId: data.projectId,
+        totalYesStake: data.totalYesStake,
+        totalNoStake: data.totalNoStake,
+        status: data.status,
+        finalOutcome: data.finalOutcome,
+        outcomeSet: data.outcomeSet,
+        yesPercentage: data.totalYesStake + data.totalNoStake > 0n
+          ? Number((data.totalYesStake * 100n) / (data.totalYesStake + data.totalNoStake))
+          : 50,
+        noPercentage: data.totalYesStake + data.totalNoStake > 0n
+          ? Number((data.totalNoStake * 100n) / (data.totalYesStake + data.totalNoStake))
+          : 50,
       },
     }
   }
@@ -52,7 +49,9 @@ export function useMarket(projectId: number, milestoneIndex: number) {
   return result
 }
 
-// Hook to get user's bets
+/**
+ * Get user's bet IDs
+ */
 export function useUserBets() {
   const { address } = useAccount()
   
@@ -64,40 +63,59 @@ export function useUserBets() {
     chainId: ACTIVE_CHAIN.id,
     query: {
       enabled: !!address,
-      refetchInterval: 10000, // ✅ Refetch every 10 seconds
+      refetchInterval: 10000,
     },
   })
 }
 
-// Hook to place a bet on a milestone
+// ========================================
+// BETTING HOOKS
+// ========================================
+
+/**
+ * ✅ UPDATED: Place bet with projectId, milestoneIndex, predictYes
+ */
 export function usePlaceBet() {
-  const { writeContractAsync, data: hash, isPending, error } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ 
-    hash,
-  })
+  const { writeContractAsync, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const placeBet = async (
     projectId: number,
-    milestoneIndex: number,
+    milestoneIndex: number,  // ✅ Added milestoneIndex
     predictYes: boolean,
     amount: string
   ) => {
     try {
-      const value = parseEther(amount)
+      const value = parseEther(amount);
       
+      console.log('🎲 Placing bet with params:', {
+        projectId: BigInt(projectId).toString(),
+        milestoneIndex: BigInt(milestoneIndex).toString(),
+        predictYes,
+        amount,
+        value: value.toString(),
+      });
+      
+      // ✅ UPDATED: Now sends projectId, milestoneIndex, predictYes
       await writeContractAsync({
         address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
         abi: PREDICTION_MARKET_ABI,
         functionName: 'placeBet',
-        args: [BigInt(projectId), BigInt(milestoneIndex), predictYes],
-        value, // Send BNB with the transaction
-        gas: 500000n, // ✅ Set reasonable gas limit
-      } as any)
+        args: [
+          BigInt(projectId),      // uint256 projectId
+          BigInt(milestoneIndex), // uint256 milestoneIndex
+          predictYes              // bool predictYes
+        ],
+        value,
+        gas: 500000n,
+      } as any);
+      
+      console.log('✅ Bet transaction submitted');
     } catch (err: any) {
-      console.error('Place bet error:', err)
-      throw err
+      console.error('❌ Place bet error:', err);
+      throw err;
     }
-  }
+  };
 
   return {
     placeBet,
@@ -107,10 +125,12 @@ export function usePlaceBet() {
     isSuccess,
     isError: !!error,
     error,
-  }
+  };
 }
 
-// Hook to claim winnings from a resolved bet
+/**
+ * Claim winnings for a resolved market
+ */
 export function useClaimWinnings() {
   const { writeContractAsync, data: hash, isPending } = useWriteContract()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash })
@@ -120,7 +140,7 @@ export function useClaimWinnings() {
       await writeContractAsync({
         address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
         abi: PREDICTION_MARKET_ABI,
-        functionName: 'claimWinnings',
+        functionName: 'claimRewards',
         args: [BigInt(projectId), BigInt(milestoneIndex)],
         gas: 300000n,
       } as any)
@@ -138,8 +158,38 @@ export function useClaimWinnings() {
   }
 }
 
+/**
+ * Claim rewards for a winning bet
+ */
+export function useClaimRewards() {
+  const { writeContractAsync, data: hash, isPending } = useWriteContract()
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash })
+
+  const claimRewards = async (betId: number) => {
+    try {
+      await writeContractAsync({
+        address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'claimRewards',
+        args: [BigInt(betId)],
+        gas: 300000n,
+      } as any)
+    } catch (err) {
+      console.error('Claim rewards error:', err)
+      throw err
+    }
+  }
+
+  return {
+    claimRewards,
+    isPending,
+    isConfirming,
+    isSuccess,
+  }
+}
+
 // ========================================
-// NEW: REAL LEADERBOARD IMPLEMENTATION
+// LEADERBOARD IMPLEMENTATION
 // ========================================
 
 interface LeaderboardEntry {
@@ -155,16 +205,18 @@ interface LeaderboardEntry {
 }
 
 interface UserBet {
-  projectId: bigint;
-  milestoneIndex: bigint;
+  betId: bigint;
+  marketId: bigint;
+  bettor: string;
+  prediction: number;
   amount: bigint;
-  predictedYes: boolean;
+  timestamp: bigint;
   claimed: boolean;
+  rewardAmount: bigint;
 }
 
 /**
- * Calculate reputation score based on multiple factors
- * Formula: (winRate * 100 * 0.4) + (totalPredictions * 10 * 0.3) + (totalStakedBNB * 5 * 0.3)
+ * Calculate reputation score
  */
 function calculateReputationScore(
   winRate: number,
@@ -190,7 +242,6 @@ async function getAllPredictorAddresses(publicClient: any): Promise<string[]> {
     
     console.log(`Scanning from block ${fromBlock} to ${currentBlock}`);
     
-    // Get all logs from PredictionMarket contract
     const logs = await publicClient.getLogs({
       address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
       fromBlock,
@@ -199,7 +250,6 @@ async function getAllPredictorAddresses(publicClient: any): Promise<string[]> {
     
     const addresses = new Set<string>();
     
-    // Extract unique addresses from logs
     logs.forEach((log: any) => {
       if (log.topics && log.topics.length > 1) {
         const address = `0x${log.topics[1].slice(-40)}`;
@@ -217,7 +267,7 @@ async function getAllPredictorAddresses(publicClient: any): Promise<string[]> {
 }
 
 /**
- * Hook to get real leaderboard data from blockchain
+ * Hook to get real leaderboard data
  */
 export function useTopPredictors(limit: number = 10) {
   const publicClient = usePublicClient();
@@ -233,7 +283,6 @@ export function useTopPredictors(limit: number = 10) {
       try {
         console.log('🏆 Fetching leaderboard data...');
         
-        // Step 1: Get all predictor addresses
         const addresses = await getAllPredictorAddresses(publicClient);
         
         if (addresses.length === 0) {
@@ -241,35 +290,49 @@ export function useTopPredictors(limit: number = 10) {
           return [];
         }
         
-        // Step 2: Fetch bets for each address
         const leaderboardData: LeaderboardEntry[] = [];
         
         for (const address of addresses) {
           try {
-            // Get user bets from contract
-            const bets = await publicClient.readContract({
+            // Get user's bet IDs
+            const betIds = await publicClient.readContract({
               address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
               abi: PREDICTION_MARKET_ABI,
               functionName: 'getUserBets',
               args: [address as `0x${string}`],
-            }as any) as UserBet[];
+            } as any) as bigint[];
 
-            if (!bets || bets.length === 0) continue;
+            if (!betIds || betIds.length === 0) continue;
 
-            // Calculate metrics
-            const totalStaked = bets.reduce((sum, bet) => sum + bet.amount, 0n);
-            const totalPredictions = bets.length;
-            
-            // Claimed bets are winning bets (approximation)
-            const claimedBets = bets.filter(b => b.claimed).length;
-            const correctPredictions = claimedBets;
-            
+            // Fetch each bet's details
+            let totalStaked = 0n;
+            let totalWon = 0n;
+            let correctPredictions = 0;
+
+            for (const betId of betIds) {
+              try {
+                const bet = await publicClient.readContract({
+                  address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
+                  abi: PREDICTION_MARKET_ABI,
+                  functionName: 'getBet',
+                  args: [betId],
+                } as any) as UserBet;
+
+                totalStaked += bet.amount;
+
+                if (bet.claimed && bet.rewardAmount > 0n) {
+                  correctPredictions++;
+                  totalWon += bet.rewardAmount;
+                }
+              } catch (error) {
+                console.error(`Error fetching bet ${betId}:`, error);
+              }
+            }
+
+            const totalPredictions = betIds.length;
             const winRate = totalPredictions > 0 
               ? (correctPredictions / totalPredictions) * 100 
               : 0;
-            
-            // Estimate total won
-            const totalWon = totalStaked * BigInt(Math.floor(winRate)) / 100n;
             
             const totalStakedBNB = parseFloat(formatEther(totalStaked));
             const reputationScore = calculateReputationScore(
@@ -302,40 +365,39 @@ export function useTopPredictors(limit: number = 10) {
               rank: 0,
             });
           } catch (error) {
-            console.error(`Error fetching bets for ${address}:`, error);
+            console.error(`Error fetching data for ${address}:`, error);
           }
         }
 
-        // Step 3: Filter users with < 10 predictions
+        // Filter users with < 10 predictions
         const qualified = leaderboardData.filter(
           entry => entry.totalPredictions >= 10
         );
 
-        // Step 4: Sort by reputation score
+        // Sort by reputation score
         qualified.sort((a, b) => b.reputationScore - a.reputationScore);
 
-        // Step 5: Assign ranks
+        // Assign ranks
         qualified.forEach((entry, index) => {
           entry.rank = index + 1;
         });
 
         console.log(`✅ Leaderboard calculated: ${qualified.length} qualified users`);
 
-        // Step 6: Return top N
         return qualified.slice(0, limit);
       } catch (error) {
         console.error('❌ Error fetching leaderboard:', error);
         return [];
       }
     },
-    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
-    refetchInterval: 1000 * 60 * 5, // Auto-refresh every 5 minutes
+    staleTime: 1000 * 60 * 5,
+    refetchInterval: 1000 * 60 * 5,
     retry: 1,
   });
 }
 
 /**
- * Hook to get leaderboard stats (for overview cards)
+ * Hook to get leaderboard stats
  */
 export function useLeaderboardStats() {
   const { data: leaderboard } = useTopPredictors(100);
@@ -366,4 +428,51 @@ export function useLeaderboardStats() {
     },
     enabled: !!leaderboard,
   });
+}
+
+/**
+ * Update user stats in localStorage
+ */
+export function updateUserStats(
+  address: string,
+  betAmount: bigint,
+  won: boolean = false,
+  wonAmount: bigint = 0n
+) {
+  const LEADERBOARD_KEY = 'oraculum_leaderboard_v1';
+  
+  try {
+    const stored = localStorage.getItem(LEADERBOARD_KEY);
+    const stats = stored ? JSON.parse(stored) : {};
+    
+    const addr = address.toLowerCase();
+    
+    if (!stats[addr]) {
+      stats[addr] = {
+        address: addr,
+        totalStaked: '0',
+        totalWon: '0',
+        totalPredictions: 0,
+        wins: 0,
+        losses: 0,
+        winRate: 0,
+      };
+    }
+    
+    const userStats = stats[addr];
+    userStats.totalStaked = (BigInt(userStats.totalStaked) + betAmount).toString();
+    userStats.totalPredictions += 1;
+    
+    if (won) {
+      userStats.wins += 1;
+      userStats.totalWon = (BigInt(userStats.totalWon) + wonAmount).toString();
+    }
+    
+    const resolvedBets = userStats.wins + userStats.losses;
+    userStats.winRate = resolvedBets > 0 ? Math.round((userStats.wins / resolvedBets) * 100) : 0;
+    
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(stats));
+  } catch (error) {
+    console.error('Failed to update user stats:', error);
+  }
 }

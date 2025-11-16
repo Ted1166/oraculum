@@ -3,10 +3,10 @@ import { bscTestnet } from "wagmi/chains";
 // Contract addresses from BSC Testnet deployment
 export const CONTRACTS = {
   bscTestnet: {
-    ProjectRegistry: "0x165f0e15F7CDA6EEFefAb1B1CC18dbb7Bf0b3DdA",
-    PredictionMarket: "0xd44ed526dcccf8db4dcc03ab4a5d9d74981c2294",
-    FundingPool: "0x8a6eca691e338e0dba3c85f092e0e1c79ca6453e",
-    ReputationNFT: "0x2402a7f666ddc2fb79ec2e19065d28ad5387b2cc",
+    ProjectRegistry: "0xfd4b0fbe8f148dbf628714fd856ab136ca9419ae",
+    PredictionMarket: "0x36e546e116ef7ec787c7f50c47f997fda194e881",
+    FundingPool: "0x70228c02b198d40477050a5f34189040b76f34ad",
+    ReputationNFT: "0xe0b7f5050f6fc38c078a05c0becc3877b12ae729",
   },
   sepolia: {
     ProjectRegistry: "0x165f0e15F7CDA6EEFefAb1B1CC18dbb7Bf0b3DdA",
@@ -850,59 +850,274 @@ export const PROJECT_REGISTRY_ABI = [
   },
 ] as const;
 
+// ✅ UPDATED PREDICTION_MARKET_ABI - Paste this into contracts.ts
+
 export const PREDICTION_MARKET_ABI = [
+  // ✅ UPDATED: placeBet now takes projectId, milestoneIndex, predictYes
   {
     inputs: [
       { name: "projectId", type: "uint256" },
       { name: "milestoneIndex", type: "uint256" },
+      { name: "predictYes", type: "bool" }
     ],
-    name: "getMarket",
+    name: "placeBet",
     outputs: [
-      { name: "totalYes", type: "uint256" },
-      { name: "totalNo", type: "uint256" },
-      { name: "resolved", type: "bool" },
-      { name: "outcome", type: "bool" },
+      { name: "betId", type: "uint256" }
     ],
-    stateMutability: "view",
+    stateMutability: "payable",
     type: "function",
   },
   {
     inputs: [{ name: "user", type: "address" }],
     name: "getUserBets",
     outputs: [
+      { name: "", type: "uint256[]" }
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "betId", type: "uint256" }],
+    name: "claimRewards",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "marketId", type: "uint256" }],
+    name: "getMarket",
+    outputs: [
       {
         components: [
+          { name: "marketId", type: "uint256" },
+          { name: "milestoneId", type: "uint256" },
           { name: "projectId", type: "uint256" },
-          { name: "milestoneIndex", type: "uint256" },
-          { name: "amount", type: "uint256" },
-          { name: "predictedYes", type: "bool" },
-          { name: "claimed", type: "bool" },
+          { name: "closeTime", type: "uint256" },
+          { name: "status", type: "uint8" },
+          { name: "outcomeSet", type: "bool" },
+          { name: "finalOutcome", type: "uint8" },
+          { name: "totalYesStake", type: "uint256" },
+          { name: "totalNoStake", type: "uint256" },
+          { name: "totalYesBettors", type: "uint256" },
+          { name: "totalNoBettors", type: "uint256" },
+          { name: "resolutionTime", type: "uint256" },
+          { name: "rewardsCalculated", type: "bool" },
         ],
-        type: "tuple[]",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  // ✅ NEW: Get market by projectId and milestoneIndex
+  {
+    inputs: [
+      { name: "projectId", type: "uint256" },
+      { name: "milestoneIndex", type: "uint256" }
+    ],
+    name: "getMarketByProjectMilestone",
+    outputs: [
+      {
+        components: [
+          { name: "marketId", type: "uint256" },
+          { name: "milestoneId", type: "uint256" },
+          { name: "projectId", type: "uint256" },
+          { name: "closeTime", type: "uint256" },
+          { name: "status", type: "uint8" },
+          { name: "outcomeSet", type: "bool" },
+          { name: "finalOutcome", type: "uint8" },
+          { name: "totalYesStake", type: "uint256" },
+          { name: "totalNoStake", type: "uint256" },
+          { name: "totalYesBettors", type: "uint256" },
+          { name: "totalNoBettors", type: "uint256" },
+          { name: "resolutionTime", type: "uint256" },
+          { name: "rewardsCalculated", type: "bool" },
+        ],
+        type: "tuple",
       },
     ],
     stateMutability: "view",
     type: "function",
   },
   {
-    inputs: [
-      { name: "projectId", type: "uint256" },
-      { name: "milestoneIndex", type: "uint256" },
-      { name: "predictYes", type: "bool" },
+    inputs: [{ name: "betId", type: "uint256" }],
+    name: "getBet",
+    outputs: [
+      {
+        components: [
+          { name: "betId", type: "uint256" },
+          { name: "marketId", type: "uint256" },
+          { name: "bettor", type: "address" },
+          { name: "prediction", type: "uint8" },
+          { name: "amount", type: "uint256" },
+          { name: "timestamp", type: "uint256" },
+          { name: "claimed", type: "bool" },
+          { name: "rewardAmount", type: "uint256" },
+        ],
+        type: "tuple",
+      },
     ],
-    name: "placeBet",
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "betId", type: "uint256" }],
+    name: "increaseBet",
     outputs: [],
     stateMutability: "payable",
     type: "function",
   },
   {
-    inputs: [
-      { name: "projectId", type: "uint256" },
-      { name: "milestoneIndex", type: "uint256" },
-    ],
-    name: "claimWinnings",
+    inputs: [{ name: "marketId", type: "uint256" }],
+    name: "closeMarket",
     outputs: [],
     stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "marketId", type: "uint256" },
+      { name: "finalOutcome", type: "uint8" }
+    ],
+    name: "resolveMarket",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "marketId", type: "uint256" },
+      { name: "reason", type: "string" }
+    ],
+    name: "cancelMarket",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "betId", type: "uint256" }],
+    name: "getClaimableAmount",
+    outputs: [
+      { name: "", type: "uint256" }
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "marketId", type: "uint256" },
+      { name: "user", type: "address" }
+    ],
+    name: "hasUserBetOnMarket",
+    outputs: [
+      { name: "", type: "bool" }
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "marketId", type: "uint256" }],
+    name: "getMarketOdds",
+    outputs: [
+      { name: "yesOdds", type: "uint256" },
+      { name: "noOdds", type: "uint256" }
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "marketId", type: "uint256" }],
+    name: "getMarketBets",
+    outputs: [
+      { name: "", type: "uint256[]" }
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  // Admin functions
+  {
+    inputs: [{ name: "_fundingPool", type: "address" }],
+    name: "setFundingPool",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "newMinBet", type: "uint256" }],
+    name: "updateMinBetAmount",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "to", type: "address" }],
+    name: "withdrawProtocolFees",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "fundingPoolContract", type: "address" }],
+    name: "transferFundingPool",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "pause",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "unpause",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "getCurrentMarketId",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "getCurrentBetId",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  // Public variables
+  {
+    inputs: [],
+    name: "fundingPoolAddress",
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "minBetAmount",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "protocolFeesCollected",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "fundingPoolBalance",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
     type: "function",
   },
 ] as const;
