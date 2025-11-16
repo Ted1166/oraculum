@@ -1,6 +1,11 @@
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi'
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, usePublicClient } from 'wagmi'
+import { useQuery } from '@tanstack/react-query'
 import { ACTIVE_CONTRACTS, ACTIVE_CHAIN, PREDICTION_MARKET_ABI } from '@/lib/contracts'
-import { parseEther } from 'viem'
+import { parseEther, formatEther } from 'viem'
+
+// ========================================
+// EXISTING HOOKS (UNCHANGED)
+// ========================================
 
 // Hook to get market data for a specific project milestone
 export function useMarket(projectId: number, milestoneIndex: number) {
@@ -133,94 +138,232 @@ export function useClaimWinnings() {
   }
 }
 
-// Hook to get top predictors (leaderboard data)
-export function useTopPredictors(limit: number = 10) {
-  // Mock data for demonstration - TODO: Replace with backend API or subgraph
-  const mockPredictors = [
-    {
-      address: "0x7a2e...f3c9",
-      totalStaked: 10000000000000000000n, // 10 BNB
-      totalWon: 7300000000000000000n, // 7.3 BNB
-      winRate: 90,
-      predictionCount: 45,
-      rank: 1,
-    },
-    {
-      address: "0x8b3f...a4d1",
-      totalStaked: 8500000000000000000n,
-      totalWon: 6000000000000000000n,
-      winRate: 85,
-      predictionCount: 38,
-      rank: 2,
-    },
-    {
-      address: "0x9c4e...b5e2",
-      totalStaked: 7500000000000000000n,
-      totalWon: 5500000000000000000n,
-      winRate: 80,
-      predictionCount: 32,
-      rank: 3,
-    },
-    {
-      address: "0x1d5f...c6f3",
-      totalStaked: 6500000000000000000n,
-      totalWon: 4500000000000000000n,
-      winRate: 75,
-      predictionCount: 28,
-      rank: 4,
-    },
-    {
-      address: "0x2e6g...d7g4",
-      totalStaked: 5500000000000000000n,
-      totalWon: 3800000000000000000n,
-      winRate: 72,
-      predictionCount: 24,
-      rank: 5,
-    },
-    {
-      address: "0x3f7h...e8h5",
-      totalStaked: 4800000000000000000n,
-      totalWon: 3200000000000000000n,
-      winRate: 68,
-      predictionCount: 20,
-      rank: 6,
-    },
-    {
-      address: "0x4g8i...f9i6",
-      totalStaked: 4200000000000000000n,
-      totalWon: 2800000000000000000n,
-      winRate: 65,
-      predictionCount: 18,
-      rank: 7,
-    },
-    {
-      address: "0x5h9j...g0j7",
-      totalStaked: 3800000000000000000n,
-      totalWon: 2400000000000000000n,
-      winRate: 62,
-      predictionCount: 15,
-      rank: 8,
-    },
-    {
-      address: "0x6i0k...h1k8",
-      totalStaked: 3200000000000000000n,
-      totalWon: 1900000000000000000n,
-      winRate: 58,
-      predictionCount: 12,
-      rank: 9,
-    },
-    {
-      address: "0x7j1l...i2l9",
-      totalStaked: 2800000000000000000n,
-      totalWon: 1600000000000000000n,
-      winRate: 55,
-      predictionCount: 10,
-      rank: 10,
-    },
-  ];
+// ========================================
+// NEW: REAL LEADERBOARD IMPLEMENTATION
+// ========================================
+
+interface LeaderboardEntry {
+  address: string;
+  displayName?: string;
+  totalStaked: bigint;
+  totalWon: bigint;
+  totalPredictions: number;
+  correctPredictions: number;
+  winRate: number;
+  reputationScore: number;
+  rank: number;
+}
+
+interface UserBet {
+  projectId: bigint;
+  milestoneIndex: bigint;
+  amount: bigint;
+  predictedYes: boolean;
+  claimed: boolean;
+}
+
+/**
+ * Calculate reputation score based on multiple factors
+ * Formula: (winRate * 100 * 0.4) + (totalPredictions * 10 * 0.3) + (totalStakedBNB * 5 * 0.3)
+ */
+function calculateReputationScore(
+  winRate: number,
+  totalPredictions: number,
+  totalStakedBNB: number
+): number {
+  const accuracyScore = winRate * 100 * 0.4;
+  const volumeScore = Math.min(totalPredictions * 10, 1000) * 0.3;
+  const stakeScore = Math.min(totalStakedBNB * 5, 500) * 0.3;
   
-  return {
-    data: mockPredictors.slice(0, limit),
-    isLoading: false,
+  return Math.round(accuracyScore + volumeScore + stakeScore);
+}
+
+/**
+ * Get all unique predictor addresses from blockchain events
+ */
+async function getAllPredictorAddresses(publicClient: any): Promise<string[]> {
+  try {
+    console.log('📡 Scanning blockchain for predictor addresses...');
+    
+    const currentBlock = await publicClient.getBlockNumber();
+    const fromBlock = currentBlock > 10000n ? currentBlock - 10000n : 0n;
+    
+    console.log(`Scanning from block ${fromBlock} to ${currentBlock}`);
+    
+    // Get all logs from PredictionMarket contract
+    const logs = await publicClient.getLogs({
+      address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
+      fromBlock,
+      toBlock: currentBlock,
+    });
+    
+    const addresses = new Set<string>();
+    
+    // Extract unique addresses from logs
+    logs.forEach((log: any) => {
+      if (log.topics && log.topics.length > 1) {
+        const address = `0x${log.topics[1].slice(-40)}`;
+        addresses.add(address.toLowerCase());
+      }
+    });
+    
+    console.log(`✅ Found ${addresses.size} unique predictors`);
+    
+    return Array.from(addresses);
+  } catch (error) {
+    console.error('❌ Error scanning for predictor addresses:', error);
+    return [];
   }
+}
+
+/**
+ * Hook to get real leaderboard data from blockchain
+ */
+export function useTopPredictors(limit: number = 10) {
+  const publicClient = usePublicClient();
+
+  return useQuery({
+    queryKey: ['leaderboard', limit],
+    queryFn: async (): Promise<LeaderboardEntry[]> => {
+      if (!publicClient) {
+        console.log('⏳ Waiting for public client...');
+        return [];
+      }
+
+      try {
+        console.log('🏆 Fetching leaderboard data...');
+        
+        // Step 1: Get all predictor addresses
+        const addresses = await getAllPredictorAddresses(publicClient);
+        
+        if (addresses.length === 0) {
+          console.log('📭 No predictor addresses found');
+          return [];
+        }
+        
+        // Step 2: Fetch bets for each address
+        const leaderboardData: LeaderboardEntry[] = [];
+        
+        for (const address of addresses) {
+          try {
+            // Get user bets from contract
+            const bets = await publicClient.readContract({
+              address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
+              abi: PREDICTION_MARKET_ABI,
+              functionName: 'getUserBets',
+              args: [address as `0x${string}`],
+            }as any) as UserBet[];
+
+            if (!bets || bets.length === 0) continue;
+
+            // Calculate metrics
+            const totalStaked = bets.reduce((sum, bet) => sum + bet.amount, 0n);
+            const totalPredictions = bets.length;
+            
+            // Claimed bets are winning bets (approximation)
+            const claimedBets = bets.filter(b => b.claimed).length;
+            const correctPredictions = claimedBets;
+            
+            const winRate = totalPredictions > 0 
+              ? (correctPredictions / totalPredictions) * 100 
+              : 0;
+            
+            // Estimate total won
+            const totalWon = totalStaked * BigInt(Math.floor(winRate)) / 100n;
+            
+            const totalStakedBNB = parseFloat(formatEther(totalStaked));
+            const reputationScore = calculateReputationScore(
+              winRate,
+              totalPredictions,
+              totalStakedBNB
+            );
+
+            // Check for display name in localStorage
+            const profileKey = `predict_fund_profile_${address}`;
+            const storedProfile = localStorage.getItem(profileKey);
+            let displayName: string | undefined;
+            
+            if (storedProfile) {
+              try {
+                const profile = JSON.parse(storedProfile);
+                displayName = profile.displayName;
+              } catch {}
+            }
+
+            leaderboardData.push({
+              address,
+              displayName,
+              totalStaked,
+              totalWon,
+              totalPredictions,
+              correctPredictions,
+              winRate: Math.round(winRate),
+              reputationScore,
+              rank: 0,
+            });
+          } catch (error) {
+            console.error(`Error fetching bets for ${address}:`, error);
+          }
+        }
+
+        // Step 3: Filter users with < 10 predictions
+        const qualified = leaderboardData.filter(
+          entry => entry.totalPredictions >= 10
+        );
+
+        // Step 4: Sort by reputation score
+        qualified.sort((a, b) => b.reputationScore - a.reputationScore);
+
+        // Step 5: Assign ranks
+        qualified.forEach((entry, index) => {
+          entry.rank = index + 1;
+        });
+
+        console.log(`✅ Leaderboard calculated: ${qualified.length} qualified users`);
+
+        // Step 6: Return top N
+        return qualified.slice(0, limit);
+      } catch (error) {
+        console.error('❌ Error fetching leaderboard:', error);
+        return [];
+      }
+    },
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+    refetchInterval: 1000 * 60 * 5, // Auto-refresh every 5 minutes
+    retry: 1,
+  });
+}
+
+/**
+ * Hook to get leaderboard stats (for overview cards)
+ */
+export function useLeaderboardStats() {
+  const { data: leaderboard } = useTopPredictors(100);
+
+  return useQuery({
+    queryKey: ['leaderboard-stats', leaderboard],
+    queryFn: () => {
+      if (!leaderboard || leaderboard.length === 0) {
+        return {
+          topPredictor: null,
+          activePredictors: 0,
+          totalStaked: '0',
+        };
+      }
+
+      const topPredictor = leaderboard[0];
+      const activePredictors = leaderboard.length;
+      const totalStaked = leaderboard.reduce(
+        (sum, entry) => sum + entry.totalStaked,
+        0n
+      );
+
+      return {
+        topPredictor,
+        activePredictors,
+        totalStaked: formatEther(totalStaked),
+      };
+    },
+    enabled: !!leaderboard,
+  });
 }

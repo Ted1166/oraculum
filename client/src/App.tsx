@@ -15,6 +15,7 @@ import ProjectDetail from "@/Pages/ProjectDetails";
 import Dashboard from "@/Pages/Dashboard";
 import CreateProject from "./Pages/CreateProject";
 import LeaderboardPage from "./Pages/LeaderBoardPage";
+import ProfilePage from "./Pages/ProfilePage";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ const App = () => (
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/create" element={<CreateProject />} />
               <Route path="/leaderboard" element={<LeaderboardPage/>} />
+              <Route path="/profile" element={<ProfilePage/>} />
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
