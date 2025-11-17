@@ -16,69 +16,79 @@ import {
   Loader2,
   AlertCircle,
   ArrowLeft,
-  Sparkles
+  Sparkles,
+  MessageSquare,
+  XCircle
 } from "lucide-react";
 import { useParams, Link } from "react-router-dom";
 import { useProject, useProjectMilestones } from "@/hooks/useProjects";
 import { useMarket, usePlaceBet } from "@/hooks/usePredictions";
 import { formatEther } from "viem";
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, usePublicClient} from "wagmi";
 import { updateUserStats } from "@/hooks/usePredictions";
+import { ACTIVE_CONTRACTS, PREDICTION_MARKET_ABI } from '@/lib/contracts';
+import ClaimRewardsSection from "@/components/ClaimRewardsSection";
+import { Textarea } from "@/components/ui/textarea";
+
+
 
 const ProjectDetail = () => {
+  // const { writeContractAsync: createMarket, isPending: isCreatingMarket } = useWriteContract();
   const { id } = useParams();
   const { address, isConnected } = useAccount();
+  const publicClient = usePublicClient();
   const [betAmount, setBetAmount] = useState("");
   const [selectedMilestone, setSelectedMilestone] = useState(0);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [loadingAI, setLoadingAI] = useState(false);
   
   const { data: project, isLoading: projectLoading, isError: projectError } = useProject(Number(id));
+  const isProjectOwner = address && project && (project as any).owner?.toLowerCase() === address.toLowerCase();
   const { data: milestones, isLoading: milestonesLoading } = useProjectMilestones(Number(id));
   const { data: market } = useMarket(Number(id), selectedMilestone);
   const { placeBet, isPending, isConfirming, isSuccess, isError: betError } = usePlaceBet();
 
   const handlePlaceBet = async (predictYes: boolean) => {
-  if (!betAmount || !id || Number(betAmount) < 0.01) {
-    alert("Minimum bet amount is 0.01 BNB");
-    return;
-  }
-  
-  try {
-    await placeBet(
-      Number(id), 
-      selectedMilestone,
-      predictYes, 
-      betAmount
-    );
-    
-    // Update leaderboard stats
-    if (address) {
-      const amount = BigInt(Math.floor(Number(betAmount) * 1e18));
-      updateUserStats(address, amount);
+    if (!betAmount || !id || Number(betAmount) < 0.01) {
+      alert("Minimum bet amount is 0.01 BNB");
+      return;
     }
     
-    setBetAmount("");
-  } catch (error: any) {
-    console.error('❌ Bet failed:', error);
-    
-    // ✅ ADD BETTER ERROR MESSAGES
-    const errorMsg = error.message || error.toString();
-    
-    if (errorMsg.includes('Market does not exist')) {
-      alert('❌ Market not created yet.\n\nThis milestone needs a prediction market. Contact the project owner.');
-    } else if (errorMsg.includes('Already bet')) {
-      alert('❌ You already placed a bet on this milestone.\n\nYou can only bet once per milestone.');
-    } else if (errorMsg.includes('insufficient funds')) {
-      alert('❌ Insufficient BNB balance.\n\nYou need at least ' + betAmount + ' BNB plus gas fees.');
-    } else if (errorMsg.includes('user rejected')) {
-      alert('Transaction cancelled.');
-    } else {
-      alert(`❌ Transaction Failed:\n\n${errorMsg.substring(0, 200)}`);
+    try {
+      await placeBet(
+        Number(id), 
+        selectedMilestone,
+        predictYes, 
+        betAmount
+      );
+      
+      // Update leaderboard stats
+      if (address) {
+        const amount = BigInt(Math.floor(Number(betAmount) * 1e18));
+        updateUserStats(address, amount);
+      }
+      
+      setBetAmount("");
+    } catch (error: any) {
+      console.error('❌ Bet failed:', error);
+      
+      // ✅ ADD BETTER ERROR MESSAGES
+      const errorMsg = error.message || error.toString();
+      
+      if (errorMsg.includes('Market does not exist')) {
+        alert('❌ Market not created yet.\n\nThis milestone needs a prediction market. Contact the project owner.');
+      } else if (errorMsg.includes('Already bet')) {
+        alert('❌ You already placed a bet on this milestone.\n\nYou can only bet once per milestone.');
+      } else if (errorMsg.includes('insufficient funds')) {
+        alert('❌ Insufficient BNB balance.\n\nYou need at least ' + betAmount + ' BNB plus gas fees.');
+      } else if (errorMsg.includes('user rejected')) {
+        alert('Transaction cancelled.');
+      } else {
+        alert(`❌ Transaction Failed:\n\n${errorMsg.substring(0, 200)}`);
+      }
     }
-  }
-};
+  };
 
   // AI Analysis function
   const analyzeProject = async () => {
@@ -395,6 +405,17 @@ ${successProb > 70 ? '✅ Recommend betting YES on upcoming milestones' : succes
                             )}
                           </div>
 
+                          {/* ✅ ADD THIS: Milestone Manager for Owner */}
+                          {isSelected && isProjectOwner && !milestone.isResolved && (
+                            <div className="mt-4 pt-4 border-t border-border/50">
+                              <MilestoneManagerInline
+                                projectId={Number(id)}
+                                milestone={milestone}
+                                milestoneIndex={idx}
+                              />
+                            </div>
+                          )}
+
                           {/* Betting Section */}
                           {!milestone.isResolved && isSelected && (
                             <div className="mt-4 pt-4 border-t border-border/50">
@@ -599,5 +620,133 @@ ${successProb > 70 ? '✅ Recommend betting YES on upcoming milestones' : succes
     </div>
   );
 };
+
+// Inline Milestone Manager Component
+interface MilestoneManagerInlineProps {
+  projectId: number;
+  milestone: any;
+  milestoneIndex: number;
+}
+
+function MilestoneManagerInline({ projectId, milestone, milestoneIndex }: MilestoneManagerInlineProps) {
+  const [updateText, setUpdateText] = useState('');
+  const [showResolve, setShowResolve] = useState(false);
+  const [proofUrl, setProofUrl] = useState('');
+  const publicClient = usePublicClient();
+  
+  const handlePostUpdate = async () => {
+    if (!updateText.trim()) return;
+
+    try {
+      const updatesKey = `milestone_updates_${projectId}_${milestoneIndex}`;
+      const existingUpdates = JSON.parse(localStorage.getItem(updatesKey) || '[]');
+      
+      existingUpdates.push({
+        text: updateText,
+        timestamp: Date.now(),
+        proofUrl: proofUrl || null,
+      });
+      
+      localStorage.setItem(updatesKey, JSON.stringify(existingUpdates));
+      
+      setUpdateText('');
+      setProofUrl('');
+      alert('✅ Update posted successfully!');
+    } catch (error) {
+      console.error('Error posting update:', error);
+      alert('Failed to post update');
+    }
+  };
+
+  const handleResolveMilestone = async (achieved: boolean) => {
+    try {
+      // Get market ID first
+      const marketData = await publicClient?.readContract({
+        address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'getMarketByProject',
+        args: [BigInt(projectId), BigInt(milestoneIndex)],
+      } as any);
+
+      if (!marketData) {
+        alert('❌ Market not found for this milestone');
+        return;
+      }
+
+      // TODO: Call contract to resolve market
+      alert(`✅ Milestone would be resolved as ${achieved ? 'ACHIEVED' : 'FAILED'}`);
+      alert('⚠️ Note: Contract integration pending - this is a placeholder');
+      
+    } catch (error: any) {
+      console.error('Error resolving milestone:', error);
+      alert(`Failed to resolve milestone: ${error.message}`);
+    }
+  };
+
+  return (
+    <div className="space-y-3 p-4 bg-primary/5 border border-primary/30 rounded-lg">
+      <h4 className="font-semibold text-sm flex items-center gap-2">
+        <MessageSquare className="w-4 h-4" />
+        Project Owner Controls
+      </h4>
+      
+      <Textarea
+        value={updateText}
+        onChange={(e) => setUpdateText(e.target.value)}
+        placeholder="Share progress updates with your community..."
+        rows={3}
+      />
+
+      <input
+        type="url"
+        value={proofUrl}
+        onChange={(e) => setProofUrl(e.target.value)}
+        placeholder="Proof URL (GitHub commit, screenshot, etc.)"
+        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
+      />
+
+      <div className="flex gap-2">
+        <Button
+          onClick={handlePostUpdate}
+          disabled={!updateText.trim()}
+          size="sm"
+          className="flex-1"
+        >
+          Post Update
+        </Button>
+
+        <Button
+          onClick={() => setShowResolve(!showResolve)}
+          variant="outline"
+          size="sm"
+        >
+          Resolve Milestone
+        </Button>
+      </div>
+
+      {showResolve && (
+        <div className="flex gap-2 pt-2 border-t">
+          <Button
+            onClick={() => handleResolveMilestone(true)}
+            className="flex-1 bg-success hover:bg-success/80"
+            size="sm"
+          >
+            <CheckCircle2 className="w-4 h-4 mr-2" />
+            Mark Achieved
+          </Button>
+          <Button
+            onClick={() => handleResolveMilestone(false)}
+            variant="destructive"
+            className="flex-1"
+            size="sm"
+          >
+            <XCircle className="w-4 h-4 mr-2" />
+            Mark Failed
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default ProjectDetail;

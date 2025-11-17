@@ -76,7 +76,7 @@ const ProfilePage = () => {
   // Calculate user stats from bets
   const userStats = {
     totalPredictions: userBets?.length || 0,
-    totalStaked: userBets?.reduce((sum, bet: any) => sum + bet.amount, 0n) || 0n,
+    totalStaked: userBets?.reduce((sum, bet: any) => sum + bet.amount, 0) || 0n,
     activeBets: userBets?.filter((bet: any) => !bet.claimed).length || 0,
     wonBets: userBets?.filter((bet: any) => bet.claimed).length || 0,
   };

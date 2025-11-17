@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   TrendingUp, 
-  TrendingDown,
   Wallet,
   Trophy,
   Target,
@@ -16,21 +15,27 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useAccount } from "wagmi";
-import { useUserBets, useClaimWinnings } from "@/hooks/usePredictions";
-import { useAllProjects, useProjectMilestones } from "@/hooks/useProjects";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUserBets, useClaimRewards } from "@/hooks/usePredictions";
+import { useAllProjects } from "@/hooks/useProjects";
 import { formatEther } from "viem";
 import { useState, useEffect } from "react";
+import { ACTIVE_CONTRACTS, PREDICTION_MARKET_ABI } from "@/lib/contracts";
+import ClaimRewardsSection from "@/components/ClaimRewardsSection";
 
 const Dashboard = () => {
+  // ✅ ALL HOOKS MUST BE CALLED FIRST, BEFORE ANY CONDITIONAL LOGIC
   const { address, isConnected } = useAccount();
   const { data: userBets, isLoading } = useUserBets();
   const { data: allProjects } = useAllProjects();
-  const { claimWinnings, isPending: isClaiming, isSuccess: claimSuccess } = useClaimWinnings();
-
-  // Get user profile for display name
+  const { claimRewards, isPending: isClaiming, isSuccess: claimSuccess } = useClaimRewards();
+  const publicClient = usePublicClient();
+  
+  // State hooks
   const [displayName, setDisplayName] = useState("");
+  const [betsDetails, setBetsDetails] = useState<any[]>([]);
 
+  // ✅ Effect to load display name
   useEffect(() => {
     if (address) {
       const profileKey = `predict_fund_profile_${address}`;
@@ -44,10 +49,40 @@ const Dashboard = () => {
     }
   }, [address]);
 
+  // ✅ Effect to fetch bet details
+  useEffect(() => {
+    const fetchBetDetails = async () => {
+      if (!userBets || !publicClient) return;
+      
+      const betIds = userBets as bigint[];
+      const details = [];
+      
+      for (const betId of betIds) {
+        try {
+          const bet = await publicClient.readContract({
+            address: ACTIVE_CONTRACTS.PredictionMarket as `0x${string}`,
+            abi: PREDICTION_MARKET_ABI,
+            functionName: 'getBet',
+            args: [betId],
+          } as any);
+          details.push(bet);
+        } catch (error) {
+          console.error(`Error fetching bet ${betId}:`, error);
+        }
+      }
+      
+      setBetsDetails(details);
+    };
+    
+    fetchBetDetails();
+  }, [userBets, publicClient]);
+
+  // ✅ NOW WE CAN DO CONDITIONAL RENDERING
   const truncateAddress = (addr: string) => {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
+  // Early return AFTER all hooks
   if (!isConnected || !address) {
     return (
       <div className="min-h-screen">
@@ -76,39 +111,37 @@ const Dashboard = () => {
     );
   }
 
-  // Parse user bets
-  const betsArray = (userBets as any[]) || [];
-  
   // Calculate stats
-  const totalStaked = betsArray.reduce((sum, bet) => sum + bet.amount, 0n);
-  const activeBets = betsArray.filter(bet => !bet.claimed);
-  const completedBets = betsArray.filter(bet => bet.claimed);
+  const totalStaked = betsDetails.reduce((sum: bigint, bet: any) => sum + bet.amount, 0n);
+  const activeBets = betsDetails.filter((bet: any) => !bet.claimed);
+  const completedBets = betsDetails.filter((bet: any) => bet.claimed);
   
   // Calculate total won (sum of claimed bets)
-  const totalWon = completedBets.reduce((sum, bet) => sum + bet.amount, 0n);
+  const totalWon = completedBets.reduce((sum, bet) => sum + bet.reward, 0n);
   
   // Calculate win rate
-  const winRate = betsArray.length > 0 
-    ? Math.round((completedBets.length / betsArray.length) * 100)
+  const winRate = betsDetails.length > 0 
+    ? Math.round((completedBets.length / betsDetails.length) * 100)
     : 0;
 
   // Calculate reputation score using same formula as leaderboard
   const totalStakedBNB = parseFloat(formatEther(totalStaked));
   const accuracyScore = winRate * 100 * 0.4;
-  const volumeScore = Math.min(betsArray.length * 10, 1000) * 0.3;
+  const volumeScore = Math.min(betsDetails.length * 10, 1000) * 0.3;
   const stakeScore = Math.min(totalStakedBNB * 5, 500) * 0.3;
   const reputationScore = Math.round(accuracyScore + volumeScore + stakeScore);
 
   // Get project details for each bet
   const getBetDetails = (bet: any) => {
-    const project = allProjects?.find((p: any) => Number(p.id) === Number(bet.projectId));
+    const project = allProjects?.find((p: any) => Number(p.id) === Number(bet.marketId));
     return {
-      projectId: Number(bet.projectId),
-      projectName: project?.name || `Project #${bet.projectId}`,
-      milestoneIndex: Number(bet.milestoneIndex),
+      projectId: Number(bet.marketId),
+      projectName: project?.name || `Project #${bet.marketId}`,
+      milestoneIndex: 0, // You may need to get this from the market
       amount: bet.amount,
       predictedYes: bet.predictedYes,
       claimed: bet.claimed,
+      reward: bet.reward,
     };
   };
 
@@ -116,9 +149,9 @@ const Dashboard = () => {
   const activePredictions = activeBets.map(getBetDetails);
   const completedPredictions = completedBets.map(getBetDetails);
 
-  const handleClaim = async (projectId: number, milestoneIndex: number) => {
+  const handleClaim = async (betId: number) => {
     try {
-      await claimWinnings(projectId, milestoneIndex);
+      await claimRewards(betId);
     } catch (error) {
       console.error("Claim failed:", error);
     }
@@ -155,7 +188,7 @@ const Dashboard = () => {
                   {parseFloat(formatEther(totalStaked)).toFixed(4)} BNB
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Across {betsArray.length} predictions
+                  Across {betsDetails.length} predictions
                 </p>
               </CardContent>
             </Card>
@@ -290,7 +323,7 @@ const Dashboard = () => {
                     <Link to="/projects">
                       <Button variant="hero">
                         Browse Projects
-                        <ArrowUpRight className="w-4 h-4" />
+                        <ArrowUpRight className="w-4 h-4 ml-2" />
                       </Button>
                     </Link>
                   </CardContent>
@@ -354,7 +387,8 @@ const Dashboard = () => {
 
             {/* Rewards Tab */}
             <TabsContent value="rewards" className="space-y-4">
-              <Card className="bg-gradient-card">
+              <ClaimRewardsSection/>
+              {/* <Card className="bg-gradient-card">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Gift className="w-5 h-5 text-warning" />
@@ -385,7 +419,7 @@ const Dashboard = () => {
                         <Link to="/projects">
                           <Button variant="hero">
                             Make More Predictions
-                            <ArrowUpRight className="w-4 h-4" />
+                            <ArrowUpRight className="w-4 h-4 ml-2" />
                           </Button>
                         </Link>
                       </div>
@@ -400,13 +434,13 @@ const Dashboard = () => {
                       <Link to="/projects">
                         <Button variant="hero">
                           Browse Projects
-                          <ArrowUpRight className="w-4 h-4" />
+                          <ArrowUpRight className="w-4 h-4 ml-2" />
                         </Button>
                       </Link>
                     </div>
                   )}
                 </CardContent>
-              </Card>
+              </Card> */}
             </TabsContent>
           </Tabs>
         </div>

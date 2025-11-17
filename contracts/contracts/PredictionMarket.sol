@@ -3,97 +3,59 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-
-interface IProjectRegistry {
-    function getMilestone(uint256 _milestoneId) external view returns (
-        uint256 milestoneId,
-        uint256 projectId,
-        string memory title,
-        string memory description,
-        uint256 targetDate,
-        uint8 status,
-        uint256 marketId,
-        bool verified,
-        string memory proofURI
-    );
-    function incrementPredictions(uint256 projectId) external;
-}
 
 /**
- * @title PredictionMarket
- * @notice Binary prediction markets for project milestones
- * @dev Handles betting, market resolution, and reward distribution
- * ✅ UPDATED: Simplified placeBet + FundingPool integration
+ * @title PredictionMarket - Community-Driven Milestone Betting
+ * @notice Users bet on project milestones. Winners funded by losers + project owner bonus on wins
+ * 
+ * ECONOMIC MODEL:
+ * - Users bet YES/NO on project milestones
+ * - When WINNERS win: They get their stake + share of loser pool + project owner bonus
+ * - When WINNERS lose: No rewards
+ * - Losers always lose their stake (distributed to winners + platform)
+ * - Platform takes 3% fee from losing pool
+ * - Project owner contributes bonus ONLY when their milestone succeeds (YES wins)
  */
-contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
+contract PredictionMarket is Ownable, ReentrancyGuard {
     
     // ========================================
     // STATE VARIABLES
     // ========================================
     
-    IProjectRegistry public projectRegistry;
-    address public fundingPoolAddress;
-    
-    uint256 private _marketIdCounter;
-    uint256 private _betIdCounter;
-    
-    // Fee structure (in basis points, 1% = 100)
-    uint256 public constant PROTOCOL_FEE_BPS = 300;      // 3%
-    uint256 public constant FUNDING_POOL_BPS = 200;      // 2%
-    uint256 public constant WINNER_SHARE_BPS = 7000;     // 70% of loser pool
-    uint256 public constant FUNDING_SHARE_BPS = 3000;    // 30% of loser pool
-    uint256 public constant BASIS_POINTS = 10000;        // 100%
-    
+    uint256 public marketCounter;
+    uint256 public betCounter;
     uint256 public minBetAmount = 0.01 ether;
-    uint256 public protocolFeesCollected;
-    uint256 public fundingPoolBalance;
-    
-    // ========================================
-    // ENUMS
-    // ========================================
-    
-    enum MarketStatus {
-        Open,        // Accepting bets
-        Closed,      // No more bets, awaiting resolution
-        Resolved,    // Outcome determined
-        Cancelled    // Market cancelled
-    }
-    
-    enum Outcome {
-        Yes,         // Milestone will be achieved
-        No           // Milestone will not be achieved
-    }
+    uint256 public platformFee = 3; // 3% of losing pool goes to platform
+    uint256 public platformBalance;
     
     // ========================================
     // STRUCTS
     // ========================================
     
     struct Market {
-        uint256 marketId;
-        uint256 milestoneId;
+        uint256 id;
         uint256 projectId;
-        uint256 closeTime;
-        MarketStatus status;
-        bool outcomeSet;
-        Outcome finalOutcome;
-        uint256 totalYesStake;
-        uint256 totalNoStake;
-        uint256 totalYesBettors;
-        uint256 totalNoBettors;
-        uint256 resolutionTime;
-        bool rewardsCalculated;
+        uint256 milestoneIndex;
+        address projectOwner;       // Who owns the project
+        uint256 deadline;           // When betting closes
+        uint256 ownerBonusPool;     // Bonus from project owner (only if YES wins)
+        bool isOpen;                
+        bool isResolved;            
+        bool outcome;               // true = YES won (milestone achieved)
+        uint256 totalYesAmount;
+        uint256 totalNoAmount;
+        uint256 yesCount;
+        uint256 noCount;
     }
     
     struct Bet {
-        uint256 betId;
+        uint256 id;
         uint256 marketId;
         address bettor;
-        Outcome prediction;
         uint256 amount;
-        uint256 timestamp;
+        bool predictedYes;
         bool claimed;
-        uint256 rewardAmount;
+        uint256 reward;
     }
     
     // ========================================
@@ -102,431 +64,302 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     
     mapping(uint256 => Market) public markets;
     mapping(uint256 => Bet) public bets;
-    mapping(uint256 => uint256[]) public marketBets;
     mapping(address => uint256[]) public userBets;
-    mapping(uint256 => mapping(address => bool)) public hasUserBet;
-    mapping(uint256 => address[]) public marketWinners;
+    mapping(uint256 => uint256[]) public marketBets;
+    mapping(uint256 => mapping(uint256 => uint256)) public projectMilestoneMarket;
+    mapping(uint256 => mapping(address => bool)) public hasBet;
     
-    // ✅ NEW: Map projectId + milestoneIndex to marketId
-    mapping(uint256 => mapping(uint256 => uint256)) public projectMilestoneToMarket;
+    // Track project followers for community engagement
+    mapping(uint256 => address[]) public projectFollowers;
+    mapping(uint256 => mapping(address => bool)) public isFollowing;
     
     // ========================================
     // EVENTS
     // ========================================
     
-    event MarketCreated(
-        uint256 indexed marketId,
-        uint256 indexed milestoneId,
-        uint256 indexed projectId,
-        uint256 closeTime
-    );
-    
-    event BetPlaced(
-        uint256 indexed betId,
-        uint256 indexed marketId,
-        address indexed bettor,
-        Outcome prediction,
-        uint256 amount
-    );
-    
-    event BetIncreased(
-        uint256 indexed betId,
-        uint256 additionalAmount,
-        uint256 newTotalAmount
-    );
-    
-    event MarketClosed(
-        uint256 indexed marketId,
-        uint256 timestamp
-    );
-    
-    event MarketResolved(
-        uint256 indexed marketId,
-        Outcome finalOutcome,
-        uint256 timestamp
-    );
-    
-    event RewardsClaimed(
-        uint256 indexed betId,
-        address indexed bettor,
-        uint256 amount
-    );
-    
-    event MarketCancelled(
-        uint256 indexed marketId,
-        string reason
-    );
-    
-    event ProtocolFeesWithdrawn(
-        address indexed to,
-        uint256 amount
-    );
-    
-    event FundingPoolTransferred(
-        address indexed fundingPool,
-        uint256 amount
-    );
+    event MarketCreated(uint256 indexed marketId, uint256 indexed projectId, uint256 milestoneIndex, address projectOwner, uint256 deadline);
+    event OwnerBonusAdded(uint256 indexed marketId, address indexed owner, uint256 amount);
+    event BetPlaced(uint256 indexed betId, uint256 indexed marketId, address indexed bettor, bool predictedYes, uint256 amount);
+    event MarketResolved(uint256 indexed marketId, bool outcome);
+    event RewardClaimed(uint256 indexed betId, address indexed bettor, uint256 amount);
+    event ProjectFollowed(uint256 indexed projectId, address indexed follower);
+    event ProjectUnfollowed(uint256 indexed projectId, address indexed follower);
     
     // ========================================
     // CONSTRUCTOR
     // ========================================
     
-    constructor(address _projectRegistry) Ownable(msg.sender) {
-        require(_projectRegistry != address(0), "Invalid registry address");
-        projectRegistry = IProjectRegistry(_projectRegistry);
-        _marketIdCounter = 1;
-        _betIdCounter = 1;
+    constructor() Ownable(msg.sender) {
+        marketCounter = 1;
+        betCounter = 1;
     }
     
     // ========================================
-    // EXTERNAL FUNCTIONS - MARKET MANAGEMENT
+    // CORE FUNCTIONS
     // ========================================
     
     /**
-     * ✅ UPDATED: Simplified placeBet - auto-creates markets
-     * @notice Place a bet on a project milestone
+     * @notice Create a new prediction market for a milestone
      * @param projectId The project ID
      * @param milestoneIndex The milestone index (0, 1, 2...)
-     * @param predictYes True for YES, False for NO
-     * @return betId The ID of the placed bet
+     * @param projectOwner The address of the project owner
+     * @param daysUntilDeadline How many days until betting closes
      */
-    function placeBet(
-        uint256 projectId,
+    function createMarket(
+        uint256 projectId, 
         uint256 milestoneIndex,
-        bool predictYes
-    ) 
-        external 
-        payable 
-        nonReentrant 
-        whenNotPaused 
-        returns (uint256) 
-    {
-        require(msg.value >= minBetAmount, "Bet amount too low");
+        address projectOwner,
+        uint256 daysUntilDeadline
+    ) external onlyOwner returns (uint256) {
+        require(projectMilestoneMarket[projectId][milestoneIndex] == 0, "Market already exists");
+        require(projectOwner != address(0), "Invalid owner");
+        require(daysUntilDeadline > 0, "Invalid deadline");
         
-        // Get or create market for this milestone
-        uint256 marketId = _getOrCreateMarket(projectId, milestoneIndex);
-        
-        require(markets[marketId].status == MarketStatus.Open, "Market not open");
-        require(block.timestamp < markets[marketId].closeTime, "Market closed");
-        require(!hasUserBet[marketId][msg.sender], "Already bet on this market");
-        
-        uint256 betId = _betIdCounter++;
-        
-        // Convert bool to Outcome enum
-        Outcome prediction = predictYes ? Outcome.Yes : Outcome.No;
-        
-        // Process bet and fees
-        uint256 betAmount = _processBetAndFees(marketId, betId, prediction);
-        
-        emit BetPlaced(betId, marketId, msg.sender, prediction, betAmount);
-        
-        return betId;
-    }
-    
-    /**
-     * ✅ NEW: Get or create market for a project milestone
-     */
-    function _getOrCreateMarket(uint256 projectId, uint256 milestoneIndex) 
-        internal 
-        returns (uint256) 
-    {
-        // Check if market already exists
-        uint256 existingMarket = projectMilestoneToMarket[projectId][milestoneIndex];
-        
-        if (existingMarket != 0) {
-            return existingMarket;
-        }
-        
-        // Create new market
-        uint256 marketId = _marketIdCounter++;
-        
-        // Get milestone details from registry
-        // Note: This assumes milestoneIndex maps to actual milestoneId
-        // You may need to adjust based on your ProjectRegistry implementation
-        uint256 closeTime = block.timestamp + 30 days; // Default 30 days
+        uint256 marketId = marketCounter++;
+        uint256 deadline = block.timestamp + (daysUntilDeadline * 1 days);
         
         markets[marketId] = Market({
-            marketId: marketId,
-            milestoneId: milestoneIndex,
+            id: marketId,
             projectId: projectId,
-            closeTime: closeTime,
-            status: MarketStatus.Open,
-            outcomeSet: false,
-            finalOutcome: Outcome.Yes,
-            totalYesStake: 0,
-            totalNoStake: 0,
-            totalYesBettors: 0,
-            totalNoBettors: 0,
-            resolutionTime: 0,
-            rewardsCalculated: false
+            milestoneIndex: milestoneIndex,
+            projectOwner: projectOwner,
+            deadline: deadline,
+            ownerBonusPool: 0,
+            isOpen: true,
+            isResolved: false,
+            outcome: false,
+            totalYesAmount: 0,
+            totalNoAmount: 0,
+            yesCount: 0,
+            noCount: 0
         });
         
-        projectMilestoneToMarket[projectId][milestoneIndex] = marketId;
+        projectMilestoneMarket[projectId][milestoneIndex] = marketId;
         
-        emit MarketCreated(marketId, milestoneIndex, projectId, closeTime);
+        emit MarketCreated(marketId, projectId, milestoneIndex, projectOwner, deadline);
         
         return marketId;
     }
     
     /**
-     * @dev Process bet creation and fee deduction
+     * @notice Project owner adds bonus pool (ONLY paid if milestone succeeds = YES wins)
+     * @dev This incentivizes project owners to deliver on milestones
+     * @param marketId The market ID
      */
-    function _processBetAndFees(
-        uint256 marketId,
-        uint256 betId,
-        Outcome prediction
-    ) internal returns (uint256) {
+    function addOwnerBonus(uint256 marketId) external payable {
         Market storage market = markets[marketId];
+        require(market.id != 0, "Market does not exist");
+        require(msg.sender == market.projectOwner, "Not project owner");
+        require(market.isOpen, "Market closed");
+        require(msg.value > 0, "No bonus sent");
         
-        // Calculate fees
-        uint256 protocolFee = (msg.value * PROTOCOL_FEE_BPS) / BASIS_POINTS;
-        uint256 fundingPoolFee = (msg.value * FUNDING_POOL_BPS) / BASIS_POINTS;
-        uint256 betAmount = msg.value - protocolFee - fundingPoolFee;
+        market.ownerBonusPool += msg.value;
         
-        // Update fee balances
-        protocolFeesCollected += protocolFee;
-        fundingPoolBalance += fundingPoolFee;
+        emit OwnerBonusAdded(marketId, msg.sender, msg.value);
+    }
+    
+    /**
+     * @notice Place a bet on a milestone
+     * @param projectId The project ID
+     * @param milestoneIndex The milestone index
+     * @param predictYes true = bet milestone succeeds, false = bet milestone fails
+     */
+    function placeBet(
+        uint256 projectId,
+        uint256 milestoneIndex,
+        bool predictYes
+    ) external payable nonReentrant returns (uint256) {
+        require(msg.value >= minBetAmount, "Bet too small");
+        
+        uint256 marketId = projectMilestoneMarket[projectId][milestoneIndex];
+        require(marketId != 0, "Market does not exist");
+        
+        Market storage market = markets[marketId];
+        require(market.isOpen, "Market closed");
+        require(block.timestamp < market.deadline, "Betting ended");
+        require(!hasBet[marketId][msg.sender], "Already bet");
+        
+        // Full amount goes into the betting pool (no upfront fees)
+        uint256 betAmount = msg.value;
         
         // Create bet
+        uint256 betId = betCounter++;
+        
         bets[betId] = Bet({
-            betId: betId,
+            id: betId,
             marketId: marketId,
             bettor: msg.sender,
-            prediction: prediction,
             amount: betAmount,
-            timestamp: block.timestamp,
+            predictedYes: predictYes,
             claimed: false,
-            rewardAmount: 0
+            reward: 0
         });
         
-        // Update market totals
-        if (prediction == Outcome.Yes) {
-            market.totalYesStake += betAmount;
-            market.totalYesBettors += 1;
+        // Update market
+        if (predictYes) {
+            market.totalYesAmount += betAmount;
+            market.yesCount++;
         } else {
-            market.totalNoStake += betAmount;
-            market.totalNoBettors += 1;
+            market.totalNoAmount += betAmount;
+            market.noCount++;
         }
         
         // Track bet
-        marketBets[marketId].push(betId);
         userBets[msg.sender].push(betId);
-        hasUserBet[marketId][msg.sender] = true;
+        marketBets[marketId].push(betId);
+        hasBet[marketId][msg.sender] = true;
         
-        // Increment prediction count in registry
-        projectRegistry.incrementPredictions(market.projectId);
+        emit BetPlaced(betId, marketId, msg.sender, predictYes, betAmount);
         
-        return betAmount;
+        return betId;
     }
     
     /**
-     * @notice Increase an existing bet amount
+     * @notice Resolve a market with outcome
+     * @param marketId The market ID
+     * @param milestoneAchieved true = milestone succeeded (YES wins), false = milestone failed (NO wins)
      */
-    function increaseBet(uint256 betId) 
-        external 
-        payable 
-        nonReentrant 
-        whenNotPaused 
-    {
-        require(msg.value >= minBetAmount, "Additional amount too low");
-        require(bets[betId].betId != 0, "Bet does not exist");
-        require(bets[betId].bettor == msg.sender, "Not your bet");
-        
-        uint256 marketId = bets[betId].marketId;
-        require(markets[marketId].status == MarketStatus.Open, "Market not open");
-        require(block.timestamp < markets[marketId].closeTime, "Market closed");
-        
-        uint256 additionalAmount = _processIncrease(betId, marketId);
-        
-        emit BetIncreased(betId, additionalAmount, bets[betId].amount);
-    }
-    
-    /**
-     * @dev Process bet increase and update totals
-     */
-    function _processIncrease(uint256 betId, uint256 marketId) internal returns (uint256) {
-        uint256 protocolFee = (msg.value * PROTOCOL_FEE_BPS) / BASIS_POINTS;
-        uint256 fundingPoolFee = (msg.value * FUNDING_POOL_BPS) / BASIS_POINTS;
-        uint256 additionalAmount = msg.value - protocolFee - fundingPoolFee;
-        
-        protocolFeesCollected += protocolFee;
-        fundingPoolBalance += fundingPoolFee;
-        
-        Bet storage bet = bets[betId];
-        bet.amount += additionalAmount;
-        
+    function resolveMarket(uint256 marketId, bool milestoneAchieved) external onlyOwner {
         Market storage market = markets[marketId];
-        if (bet.prediction == Outcome.Yes) {
-            market.totalYesStake += additionalAmount;
-        } else {
-            market.totalNoStake += additionalAmount;
-        }
+        require(market.id != 0, "Market does not exist");
+        require(!market.isResolved, "Already resolved");
+        require(block.timestamp >= market.deadline, "Betting not ended");
         
-        return additionalAmount;
-    }
-    
-    /**
-     * @notice Close market for betting
-     */
-    function closeMarket(uint256 marketId) external onlyOwner {
-        require(markets[marketId].marketId != 0, "Market does not exist");
-        require(markets[marketId].status == MarketStatus.Open, "Market not open");
-        
-        markets[marketId].status = MarketStatus.Closed;
-        
-        emit MarketClosed(marketId, block.timestamp);
-    }
-    
-    /**
-     * ✅ UPDATED: Resolve market + transfer to FundingPool
-     * @notice Resolve market with final outcome
-     */
-    function resolveMarket(uint256 marketId, Outcome finalOutcome) 
-        external 
-        onlyOwner 
-        nonReentrant 
-    {
-        require(markets[marketId].marketId != 0, "Market does not exist");
-        Market storage market = markets[marketId];
-        require(
-            market.status == MarketStatus.Closed || 
-            block.timestamp >= market.closeTime,
-            "Market must be closed first"
-        );
-        require(!market.outcomeSet, "Market already resolved");
-        
-        // Set outcome
-        market.finalOutcome = finalOutcome;
-        market.outcomeSet = true;
-        market.status = MarketStatus.Resolved;
-        market.resolutionTime = block.timestamp;
+        market.isResolved = true;
+        market.isOpen = false;
+        market.outcome = milestoneAchieved;
         
         // Calculate rewards
-        _calculateRewards(marketId);
+        _calculateRewards(marketId, milestoneAchieved);
         
-        // ✅ NEW: Transfer funding pool to FundingPool contract
-        if (fundingPoolAddress != address(0) && fundingPoolBalance > 0) {
-            uint256 transferAmount = fundingPoolBalance;
-            fundingPoolBalance = 0;
-            
-            (bool success, ) = payable(fundingPoolAddress).call{value: transferAmount}("");
-            require(success, "Funding pool transfer failed");
-            
-            emit FundingPoolTransferred(fundingPoolAddress, transferAmount);
-        }
-        
-        emit MarketResolved(marketId, finalOutcome, block.timestamp);
+        emit MarketResolved(marketId, milestoneAchieved);
     }
     
     /**
-     * @notice Claim rewards for a winning bet
+     * @notice Claim reward for winning bet
      */
-    function claimRewards(uint256 betId) external nonReentrant {
-        require(bets[betId].betId != 0, "Bet does not exist");
+    function claimReward(uint256 betId) external nonReentrant {
         Bet storage bet = bets[betId];
+        require(bet.id != 0, "Bet does not exist");
         require(bet.bettor == msg.sender, "Not your bet");
         require(!bet.claimed, "Already claimed");
         
         Market memory market = markets[bet.marketId];
-        require(market.status == MarketStatus.Resolved, "Market not resolved");
-        require(market.rewardsCalculated, "Rewards not calculated");
-        
-        require(bet.prediction == market.finalOutcome, "Not a winning bet");
-        require(bet.rewardAmount > 0, "No rewards to claim");
+        require(market.isResolved, "Not resolved");
+        require(bet.predictedYes == market.outcome, "Lost bet");
+        require(bet.reward > 0, "No reward");
         
         bet.claimed = true;
         
-        (bool success, ) = payable(msg.sender).call{value: bet.rewardAmount}("");
-        require(success, "Reward transfer failed");
+        (bool success, ) = payable(msg.sender).call{value: bet.reward}("");
+        require(success, "Transfer failed");
         
-        emit RewardsClaimed(betId, msg.sender, bet.rewardAmount);
+        emit RewardClaimed(betId, msg.sender, bet.reward);
     }
     
     /**
-     * @notice Cancel a market and refund all bets
+     * @dev Calculate rewards based on outcome
+     * 
+     * WINNING SCENARIO:
+     * - Winners get: their stake + proportional share of (loser pool - platform fee) + owner bonus (if YES wins)
+     * - Platform gets: 3% of losing pool
+     * - Project owner: Pays bonus ONLY if milestone achieved (YES wins)
+     * 
+     * LOSING SCENARIO:
+     * - Losers get: nothing
+     * - Their stake is distributed to winners
      */
-    function cancelMarket(uint256 marketId, string memory reason) 
-        external 
-        onlyOwner 
-        nonReentrant 
-    {
-        require(markets[marketId].marketId != 0, "Market does not exist");
-        Market storage market = markets[marketId];
-        require(market.status != MarketStatus.Resolved, "Cannot cancel resolved market");
+    function _calculateRewards(uint256 marketId, bool outcome) internal {
+        Market memory market = markets[marketId];
         
-        market.status = MarketStatus.Cancelled;
+        uint256 winningPool = outcome ? market.totalYesAmount : market.totalNoAmount;
+        uint256 losingPool = outcome ? market.totalNoAmount : market.totalYesAmount;
         
-        uint256[] memory betIds = marketBets[marketId];
-        for (uint256 i = 0; i < betIds.length; i++) {
-            Bet storage bet = bets[betIds[i]];
-            if (!bet.claimed && bet.amount > 0) {
-                bet.claimed = true;
-                (bool success, ) = payable(bet.bettor).call{value: bet.amount}("");
-                require(success, "Refund failed");
-            }
-        }
-        
-        emit MarketCancelled(marketId, reason);
-    }
-    
-    // ========================================
-    // INTERNAL FUNCTIONS - REWARDS
-    // ========================================
-    
-    function _calculateRewards(uint256 marketId) internal {
-        Market storage market = markets[marketId];
-        require(!market.rewardsCalculated, "Rewards already calculated");
-        
-        uint256 winningPool = market.finalOutcome == Outcome.Yes ? market.totalYesStake : market.totalNoStake;
-        uint256 losingPool = market.finalOutcome == Outcome.Yes ? market.totalNoStake : market.totalYesStake;
-
+        // If no losing bets, winners just get their stake back
         if (losingPool == 0) {
-            _distributeStakeOnly(marketId);
-            market.rewardsCalculated = true;
+            uint256[] memory refundBetIds = marketBets[marketId];
+            for (uint256 i = 0; i < refundBetIds.length; i++) {
+                Bet storage bet = bets[refundBetIds[i]];
+                if (bet.predictedYes == outcome) {
+                    bet.reward = bet.amount;
+                    
+                    // Refund owner bonus if YES wins but no losers
+                    if (outcome && market.ownerBonusPool > 0 && i == 0) {
+                        bet.reward += market.ownerBonusPool;
+                    }
+                }
+            }
             return;
         }
-
-        uint256 winnerShare = (losingPool * WINNER_SHARE_BPS) / BASIS_POINTS;
-        uint256 fundingShare = losingPool - winnerShare;
-
-        fundingPoolBalance += fundingShare;
-
-        _distributeWinnings(marketId, winningPool, winnerShare);
-        market.rewardsCalculated = true; 
-    }
-
-    function _distributeStakeOnly(uint256 marketId) internal {
-        Market memory market = markets[marketId];
-        uint256[] memory betIds = marketBets[marketId];
         
-        for (uint256 i = 0; i < betIds.length; i++) {
-            Bet storage bet = bets[betIds[i]];
-            if (bet.prediction == market.finalOutcome) {
-                bet.rewardAmount = bet.amount;
-                marketWinners[marketId].push(bet.bettor);
-            }
+        // Take platform fee from losing pool
+        uint256 platformCut = (losingPool * platformFee) / 100;
+        platformBalance += platformCut;
+        
+        // Distribute remaining losing pool to winners
+        uint256 distributeAmount = losingPool - platformCut;
+        
+        // Add owner bonus ONLY if milestone achieved (YES wins)
+        if (outcome && market.ownerBonusPool > 0) {
+            distributeAmount += market.ownerBonusPool;
         }
-    }
-
-    function _distributeWinnings(
-        uint256 marketId,
-        uint256 winningPool,
-        uint256 winnerShare
-    ) internal {
-        Market memory market = markets[marketId];
-        uint256[] memory betIds = marketBets[marketId];
+        // If NO wins (milestone failed), owner keeps their bonus
         
-        for (uint256 i = 0; i < betIds.length; i++) {
-            Bet storage bet = bets[betIds[i]];
+        // Distribute to winners proportionally
+        uint256[] memory winningBetIds = marketBets[marketId];
+        for (uint256 i = 0; i < winningBetIds.length; i++) {
+            Bet storage bet = bets[winningBetIds[i]];
             
-            if (bet.prediction == market.finalOutcome) {
-                uint256 share = (bet.amount * winnerShare) / winningPool;
-                bet.rewardAmount = bet.amount + share;
-                marketWinners[marketId].push(bet.bettor);
+            if (bet.predictedYes == outcome) {
+                // Winner: stake + proportional share of distribute pool
+                uint256 share = (bet.amount * distributeAmount) / winningPool;
+                bet.reward = bet.amount + share;
             } else {
-                bet.rewardAmount = 0;
+                // Loser: no reward
+                bet.reward = 0;
             }
         }
+    }
+    
+    // ========================================
+    // COMMUNITY ENGAGEMENT
+    // ========================================
+    
+    /**
+     * @notice Follow a project to stay updated
+     */
+    function followProject(uint256 projectId) external {
+        require(!isFollowing[projectId][msg.sender], "Already following");
+        
+        projectFollowers[projectId].push(msg.sender);
+        isFollowing[projectId][msg.sender] = true;
+        
+        emit ProjectFollowed(projectId, msg.sender);
+    }
+    
+    /**
+     * @notice Unfollow a project
+     */
+    function unfollowProject(uint256 projectId) external {
+        require(isFollowing[projectId][msg.sender], "Not following");
+        
+        isFollowing[projectId][msg.sender] = false;
+        
+        emit ProjectUnfollowed(projectId, msg.sender);
+    }
+    
+    /**
+     * @notice Get project followers
+     */
+    function getProjectFollowers(uint256 projectId) external view returns (address[] memory) {
+        return projectFollowers[projectId];
+    }
+    
+    /**
+     * @notice Check if user is following project
+     */
+    function isUserFollowing(uint256 projectId, address user) external view returns (bool) {
+        return isFollowing[projectId][user];
     }
     
     // ========================================
@@ -534,138 +367,100 @@ contract PredictionMarket is Ownable, ReentrancyGuard, Pausable {
     // ========================================
     
     function getMarket(uint256 marketId) external view returns (Market memory) {
-        require(markets[marketId].marketId != 0, "Market does not exist");
         return markets[marketId];
     }
     
-    /**
-     * ✅ NEW: Get market by project and milestone
-     */
-    function getMarketByProjectMilestone(uint256 projectId, uint256 milestoneIndex) 
-        external 
-        view 
-        returns (Market memory) 
-    {
-        uint256 marketId = projectMilestoneToMarket[projectId][milestoneIndex];
+    function getMarketByProject(uint256 projectId, uint256 milestoneIndex) external view returns (Market memory) {
+        uint256 marketId = projectMilestoneMarket[projectId][milestoneIndex];
         require(marketId != 0, "Market does not exist");
         return markets[marketId];
     }
     
     function getBet(uint256 betId) external view returns (Bet memory) {
-        require(bets[betId].betId != 0, "Bet does not exist");
         return bets[betId];
-    }
-    
-    function getMarketBets(uint256 marketId) external view returns (uint256[] memory) {
-        return marketBets[marketId];
     }
     
     function getUserBets(address user) external view returns (uint256[] memory) {
         return userBets[user];
     }
     
-    function getMarketOdds(uint256 marketId) 
-        external 
-        view 
-        returns (uint256 yesOdds, uint256 noOdds) 
-    {
-        require(markets[marketId].marketId != 0, "Market does not exist");
+    function getMarketBets(uint256 marketId) external view returns (uint256[] memory) {
+        return marketBets[marketId];
+    }
+    
+    function hasUserBet(uint256 marketId, address user) external view returns (bool) {
+        return hasBet[marketId][user];
+    }
+    
+    function getMarketOdds(uint256 marketId) external view returns (uint256 yesPercent, uint256 noPercent) {
         Market memory market = markets[marketId];
+        uint256 total = market.totalYesAmount + market.totalNoAmount;
         
-        uint256 totalStake = market.totalYesStake + market.totalNoStake;
-        
-        if (totalStake == 0) {
-            return (5000, 5000);
+        if (total == 0) {
+            return (50, 50);
         }
         
-        yesOdds = (market.totalYesStake * BASIS_POINTS) / totalStake;
-        noOdds = (market.totalNoStake * BASIS_POINTS) / totalStake;
+        yesPercent = (market.totalYesAmount * 100) / total;
+        noPercent = 100 - yesPercent;
     }
     
-    function hasUserBetOnMarket(uint256 marketId, address user) 
-        external 
-        view 
-        returns (bool) 
-    {
-        return hasUserBet[marketId][user];
-    }
-    
-    function getClaimableAmount(uint256 betId) external view returns (uint256) {
-        require(bets[betId].betId != 0, "Bet does not exist");
+    /**
+     * @notice Get potential reward for a winning bet
+     * @dev Estimates reward if market resolves in predicted direction
+     */
+    function estimateReward(uint256 betId) external view returns (uint256) {
         Bet memory bet = bets[betId];
-        
-        if (bet.claimed) return 0;
-        
         Market memory market = markets[bet.marketId];
-        if (market.status != MarketStatus.Resolved) return 0;
-        if (bet.prediction != market.finalOutcome) return 0;
         
-        return bet.rewardAmount;
+        if (market.isResolved) {
+            return bet.reward;
+        }
+        
+        uint256 winningPool = bet.predictedYes ? market.totalYesAmount : market.totalNoAmount;
+        uint256 losingPool = bet.predictedYes ? market.totalNoAmount : market.totalYesAmount;
+        
+        if (losingPool == 0) {
+            return bet.amount;
+        }
+        
+        uint256 platformCut = (losingPool * platformFee) / 100;
+        uint256 distributeAmount = losingPool - platformCut;
+        
+        // Add owner bonus if betting YES
+        if (bet.predictedYes && market.ownerBonusPool > 0) {
+            distributeAmount += market.ownerBonusPool;
+        }
+        
+        uint256 share = (bet.amount * distributeAmount) / winningPool;
+        return bet.amount + share;
     }
     
     // ========================================
     // ADMIN FUNCTIONS
     // ========================================
     
-    /**
-     * ✅ NEW: Set FundingPool address
-     */
-    function setFundingPool(address _fundingPool) external onlyOwner {
-        require(_fundingPool != address(0), "Invalid address");
-        fundingPoolAddress = _fundingPool;
+    function closeMarket(uint256 marketId) external onlyOwner {
+        markets[marketId].isOpen = false;
     }
     
-    function updateMinBetAmount(uint256 newMinBet) external onlyOwner {
-        require(newMinBet > 0, "Min bet must be positive");
-        minBetAmount = newMinBet;
-    }
-    
-    function withdrawProtocolFees(address payable to) external onlyOwner nonReentrant {
+    function withdrawPlatformFees(address payable to) external onlyOwner nonReentrant {
         require(to != address(0), "Invalid address");
-        require(protocolFeesCollected > 0, "No fees to withdraw");
+        require(platformBalance > 0, "No balance");
         
-        uint256 amount = protocolFeesCollected;
-        protocolFeesCollected = 0;
+        uint256 amount = platformBalance;
+        platformBalance = 0;
         
         (bool success, ) = to.call{value: amount}("");
-        require(success, "Withdrawal failed");
-        
-        emit ProtocolFeesWithdrawn(to, amount);
-    }
-    
-    /**
-     * ✅ UPDATED: Manual transfer to FundingPool (if auto-transfer fails)
-     */
-    function transferFundingPool(address payable fundingPoolContract) 
-        external 
-        onlyOwner 
-        nonReentrant 
-    {
-        require(fundingPoolContract != address(0), "Invalid address");
-        require(fundingPoolBalance > 0, "No funding pool balance");
-        
-        uint256 amount = fundingPoolBalance;
-        fundingPoolBalance = 0;
-        
-        (bool success, ) = fundingPoolContract.call{value: amount}("");
         require(success, "Transfer failed");
-        
-        emit FundingPoolTransferred(fundingPoolContract, amount);
     }
     
-    function pause() external onlyOwner {
-        _pause();
+    function setMinBet(uint256 newMin) external onlyOwner {
+        require(newMin > 0, "Invalid amount");
+        minBetAmount = newMin;
     }
     
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-    
-    function getCurrentMarketId() external view returns (uint256) {
-        return _marketIdCounter - 1;
-    }
-    
-    function getCurrentBetId() external view returns (uint256) {
-        return _betIdCounter - 1;
+    function setPlatformFee(uint256 newFee) external onlyOwner {
+        require(newFee <= 10, "Fee too high"); // Max 10%
+        platformFee = newFee;
     }
 }

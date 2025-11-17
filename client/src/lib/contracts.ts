@@ -3,10 +3,10 @@ import { bscTestnet } from "wagmi/chains";
 // Contract addresses from BSC Testnet deployment
 export const CONTRACTS = {
   bscTestnet: {
-    ProjectRegistry: "0xfd4b0fbe8f148dbf628714fd856ab136ca9419ae",
-    PredictionMarket: "0x36e546e116ef7ec787c7f50c47f997fda194e881",
-    FundingPool: "0x70228c02b198d40477050a5f34189040b76f34ad",
-    ReputationNFT: "0xe0b7f5050f6fc38c078a05c0becc3877b12ae729",
+    ProjectRegistry: "0x55a615f72b6d80e79d5d33e0f52745e66b3c3da4",
+    PredictionMarket: "0x4c8904a00c5b98342f7643f75c9060a6484d1f78",
+    FundingPool: "0xfc811c4a7a5b61d79de9096d5f9cfe792d8b7f92",
+    ReputationNFT: "0xc29042c81d780cdd77c2b6096539d519eb2cfea2",
   },
   sepolia: {
     ProjectRegistry: "0x165f0e15F7CDA6EEFefAb1B1CC18dbb7Bf0b3DdA",
@@ -852,8 +852,12 @@ export const PROJECT_REGISTRY_ABI = [
 
 // ✅ UPDATED PREDICTION_MARKET_ABI - Paste this into contracts.ts
 
+// contracts.ts - Updated to match PredictionMarket.sol
+
 export const PREDICTION_MARKET_ABI = [
-  // ✅ UPDATED: placeBet now takes projectId, milestoneIndex, predictYes
+  // ========================================
+  // CORE BETTING FUNCTIONS
+  // ========================================
   {
     inputs: [
       { name: "projectId", type: "uint256" },
@@ -861,110 +865,48 @@ export const PREDICTION_MARKET_ABI = [
       { name: "predictYes", type: "bool" }
     ],
     name: "placeBet",
-    outputs: [
-      { name: "betId", type: "uint256" }
-    ],
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "payable",
     type: "function",
   },
   {
-    inputs: [{ name: "user", type: "address" }],
-    name: "getUserBets",
-    outputs: [
-      { name: "", type: "uint256[]" }
-    ],
-    stateMutability: "view",
+    inputs: [{ name: "betId", type: "uint256" }],
+    name: "claimReward",
+    outputs: [],
+    stateMutability: "nonpayable",
     type: "function",
   },
+  
+  // ========================================
+  // MARKET MANAGEMENT
+  // ========================================
   {
-    inputs: [{ name: "betId", type: "uint256" }],
-    name: "claimRewards",
-    outputs: [],
+    inputs: [
+      { name: "projectId", type: "uint256" },
+      { name: "milestoneIndex", type: "uint256" },
+      { name: "projectOwner", type: "address" },
+      { name: "daysUntilDeadline", type: "uint256" }
+    ],
+    name: "createMarket",
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "nonpayable",
     type: "function",
   },
   {
     inputs: [{ name: "marketId", type: "uint256" }],
-    name: "getMarket",
-    outputs: [
-      {
-        components: [
-          { name: "marketId", type: "uint256" },
-          { name: "milestoneId", type: "uint256" },
-          { name: "projectId", type: "uint256" },
-          { name: "closeTime", type: "uint256" },
-          { name: "status", type: "uint8" },
-          { name: "outcomeSet", type: "bool" },
-          { name: "finalOutcome", type: "uint8" },
-          { name: "totalYesStake", type: "uint256" },
-          { name: "totalNoStake", type: "uint256" },
-          { name: "totalYesBettors", type: "uint256" },
-          { name: "totalNoBettors", type: "uint256" },
-          { name: "resolutionTime", type: "uint256" },
-          { name: "rewardsCalculated", type: "bool" },
-        ],
-        type: "tuple",
-      },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  // ✅ NEW: Get market by projectId and milestoneIndex
-  {
-    inputs: [
-      { name: "projectId", type: "uint256" },
-      { name: "milestoneIndex", type: "uint256" }
-    ],
-    name: "getMarketByProjectMilestone",
-    outputs: [
-      {
-        components: [
-          { name: "marketId", type: "uint256" },
-          { name: "milestoneId", type: "uint256" },
-          { name: "projectId", type: "uint256" },
-          { name: "closeTime", type: "uint256" },
-          { name: "status", type: "uint8" },
-          { name: "outcomeSet", type: "bool" },
-          { name: "finalOutcome", type: "uint8" },
-          { name: "totalYesStake", type: "uint256" },
-          { name: "totalNoStake", type: "uint256" },
-          { name: "totalYesBettors", type: "uint256" },
-          { name: "totalNoBettors", type: "uint256" },
-          { name: "resolutionTime", type: "uint256" },
-          { name: "rewardsCalculated", type: "bool" },
-        ],
-        type: "tuple",
-      },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ name: "betId", type: "uint256" }],
-    name: "getBet",
-    outputs: [
-      {
-        components: [
-          { name: "betId", type: "uint256" },
-          { name: "marketId", type: "uint256" },
-          { name: "bettor", type: "address" },
-          { name: "prediction", type: "uint8" },
-          { name: "amount", type: "uint256" },
-          { name: "timestamp", type: "uint256" },
-          { name: "claimed", type: "bool" },
-          { name: "rewardAmount", type: "uint256" },
-        ],
-        type: "tuple",
-      },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ name: "betId", type: "uint256" }],
-    name: "increaseBet",
+    name: "addOwnerBonus",
     outputs: [],
     stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "marketId", type: "uint256" },
+      { name: "milestoneAchieved", type: "bool" }
+    ],
+    name: "resolveMarket",
+    outputs: [],
+    stateMutability: "nonpayable",
     type: "function",
   },
   {
@@ -974,43 +916,61 @@ export const PREDICTION_MARKET_ABI = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  
+  // ========================================
+  // VIEW FUNCTIONS - MARKETS
+  // ========================================
   {
-    inputs: [
-      { name: "marketId", type: "uint256" },
-      { name: "finalOutcome", type: "uint8" }
-    ],
-    name: "resolveMarket",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [
-      { name: "marketId", type: "uint256" },
-      { name: "reason", type: "string" }
-    ],
-    name: "cancelMarket",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ name: "betId", type: "uint256" }],
-    name: "getClaimableAmount",
+    inputs: [{ name: "marketId", type: "uint256" }],
+    name: "getMarket",
     outputs: [
-      { name: "", type: "uint256" }
+      {
+        components: [
+          { name: "id", type: "uint256" },
+          { name: "projectId", type: "uint256" },
+          { name: "milestoneIndex", type: "uint256" },
+          { name: "projectOwner", type: "address" },
+          { name: "deadline", type: "uint256" },
+          { name: "ownerBonusPool", type: "uint256" },
+          { name: "isOpen", type: "bool" },
+          { name: "isResolved", type: "bool" },
+          { name: "outcome", type: "bool" },
+          { name: "totalYesAmount", type: "uint256" },
+          { name: "totalNoAmount", type: "uint256" },
+          { name: "yesCount", type: "uint256" },
+          { name: "noCount", type: "uint256" },
+        ],
+        type: "tuple",
+      },
     ],
     stateMutability: "view",
     type: "function",
   },
   {
     inputs: [
-      { name: "marketId", type: "uint256" },
-      { name: "user", type: "address" }
+      { name: "projectId", type: "uint256" },
+      { name: "milestoneIndex", type: "uint256" }
     ],
-    name: "hasUserBetOnMarket",
+    name: "getMarketByProject",
     outputs: [
-      { name: "", type: "bool" }
+      {
+        components: [
+          { name: "id", type: "uint256" },
+          { name: "projectId", type: "uint256" },
+          { name: "milestoneIndex", type: "uint256" },
+          { name: "projectOwner", type: "address" },
+          { name: "deadline", type: "uint256" },
+          { name: "ownerBonusPool", type: "uint256" },
+          { name: "isOpen", type: "bool" },
+          { name: "isResolved", type: "bool" },
+          { name: "outcome", type: "bool" },
+          { name: "totalYesAmount", type: "uint256" },
+          { name: "totalNoAmount", type: "uint256" },
+          { name: "yesCount", type: "uint256" },
+          { name: "noCount", type: "uint256" },
+        ],
+        type: "tuple",
+      },
     ],
     stateMutability: "view",
     type: "function",
@@ -1019,8 +979,8 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [{ name: "marketId", type: "uint256" }],
     name: "getMarketOdds",
     outputs: [
-      { name: "yesOdds", type: "uint256" },
-      { name: "noOdds", type: "uint256" }
+      { name: "yesPercent", type: "uint256" },
+      { name: "noPercent", type: "uint256" }
     ],
     stateMutability: "view",
     type: "function",
@@ -1028,74 +988,133 @@ export const PREDICTION_MARKET_ABI = [
   {
     inputs: [{ name: "marketId", type: "uint256" }],
     name: "getMarketBets",
+    outputs: [{ name: "", type: "uint256[]" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  
+  // ========================================
+  // VIEW FUNCTIONS - BETS
+  // ========================================
+  {
+    inputs: [{ name: "betId", type: "uint256" }],
+    name: "getBet",
     outputs: [
-      { name: "", type: "uint256[]" }
+      {
+        components: [
+          { name: "id", type: "uint256" },
+          { name: "marketId", type: "uint256" },
+          { name: "bettor", type: "address" },
+          { name: "amount", type: "uint256" },
+          { name: "predictedYes", type: "bool" },
+          { name: "claimed", type: "bool" },
+          { name: "reward", type: "uint256" },
+        ],
+        type: "tuple",
+      },
     ],
     stateMutability: "view",
     type: "function",
   },
-  // Admin functions
   {
-    inputs: [{ name: "_fundingPool", type: "address" }],
-    name: "setFundingPool",
+    inputs: [{ name: "user", type: "address" }],
+    name: "getUserBets",
+    outputs: [{ name: "", type: "uint256[]" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "betId", type: "uint256" }],
+    name: "estimateReward",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "marketId", type: "uint256" },
+      { name: "user", type: "address" }
+    ],
+    name: "hasUserBet",
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  
+  // ========================================
+  // COMMUNITY FUNCTIONS
+  // ========================================
+  {
+    inputs: [{ name: "projectId", type: "uint256" }],
+    name: "followProject",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
   },
   {
-    inputs: [{ name: "newMinBet", type: "uint256" }],
-    name: "updateMinBetAmount",
+    inputs: [{ name: "projectId", type: "uint256" }],
+    name: "unfollowProject",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
   },
+  {
+    inputs: [{ name: "projectId", type: "uint256" }],
+    name: "getProjectFollowers",
+    outputs: [{ name: "", type: "address[]" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "projectId", type: "uint256" },
+      { name: "user", type: "address" }
+    ],
+    name: "isUserFollowing",
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  
+  // ========================================
+  // ADMIN FUNCTIONS
+  // ========================================
   {
     inputs: [{ name: "to", type: "address" }],
-    name: "withdrawProtocolFees",
+    name: "withdrawPlatformFees",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
   },
   {
-    inputs: [{ name: "fundingPoolContract", type: "address" }],
-    name: "transferFundingPool",
+    inputs: [{ name: "newMin", type: "uint256" }],
+    name: "setMinBet",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
   },
   {
-    inputs: [],
-    name: "pause",
+    inputs: [{ name: "newFee", type: "uint256" }],
+    name: "setPlatformFee",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
   },
-  {
-    inputs: [],
-    name: "unpause",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
+  
+  // ========================================
+  // PUBLIC VARIABLES
+  // ========================================
   {
     inputs: [],
-    name: "getCurrentMarketId",
+    name: "marketCounter",
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
   },
   {
     inputs: [],
-    name: "getCurrentBetId",
+    name: "betCounter",
     outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  // Public variables
-  {
-    inputs: [],
-    name: "fundingPoolAddress",
-    outputs: [{ name: "", type: "address" }],
     stateMutability: "view",
     type: "function",
   },
@@ -1108,16 +1127,91 @@ export const PREDICTION_MARKET_ABI = [
   },
   {
     inputs: [],
-    name: "protocolFeesCollected",
+    name: "platformFee",
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
   },
   {
     inputs: [],
-    name: "fundingPoolBalance",
+    name: "platformBalance",
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
+  },
+  
+  // ========================================
+  // EVENTS
+  // ========================================
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "marketId", type: "uint256" },
+      { indexed: true, name: "projectId", type: "uint256" },
+      { indexed: false, name: "milestoneIndex", type: "uint256" },
+      { indexed: false, name: "projectOwner", type: "address" },
+      { indexed: false, name: "deadline", type: "uint256" }
+    ],
+    name: "MarketCreated",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "marketId", type: "uint256" },
+      { indexed: true, name: "owner", type: "address" },
+      { indexed: false, name: "amount", type: "uint256" }
+    ],
+    name: "OwnerBonusAdded",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "betId", type: "uint256" },
+      { indexed: true, name: "marketId", type: "uint256" },
+      { indexed: true, name: "bettor", type: "address" },
+      { indexed: false, name: "predictedYes", type: "bool" },
+      { indexed: false, name: "amount", type: "uint256" }
+    ],
+    name: "BetPlaced",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "marketId", type: "uint256" },
+      { indexed: false, name: "outcome", type: "bool" }
+    ],
+    name: "MarketResolved",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "betId", type: "uint256" },
+      { indexed: true, name: "bettor", type: "address" },
+      { indexed: false, name: "amount", type: "uint256" }
+    ],
+    name: "RewardClaimed",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "projectId", type: "uint256" },
+      { indexed: true, name: "follower", type: "address" }
+    ],
+    name: "ProjectFollowed",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "projectId", type: "uint256" },
+      { indexed: true, name: "follower", type: "address" }
+    ],
+    name: "ProjectUnfollowed",
+    type: "event",
   },
 ] as const;
